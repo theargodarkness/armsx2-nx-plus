@@ -3175,9 +3175,19 @@ void VMManager::Internal::Throttle(bool vsync_start)
 	else if (!vsync_start && sDeltaTime >= 0)
 		lateness = EECycleRateLateness::Late;
 	EECycleRateSampler::OnSegmentThrottled(segment_ticks, static_cast<u64>(s_limiter_ticks_per_frame), !vsync_start, lateness);
+	if (lateness != EECycleRateLateness::OnTime)
+		GSNoteLateFrame();
 
 	// If frame ran too long...
+#ifdef __SWITCH__
+	// A game that sits just over the console's limit falls behind and catches up all the time,
+	// and each catch-up is a burst above full speed: four frames of debt showed as a second at
+	// 105-113% after every dip. Two keeps a single slow frame from costing speed and halves
+	// the burst.
+	static constexpr s64 MAX_CATCH_UP_FRAMES = 2;
+#else
 	static constexpr s64 MAX_CATCH_UP_FRAMES = 4;
+#endif
 	if (sDeltaTime >= s_limiter_ticks_per_frame * MAX_CATCH_UP_FRAMES)
 	{
 		// ... Fudge the next frame start over a bit. Prevents fast forward zoomies.

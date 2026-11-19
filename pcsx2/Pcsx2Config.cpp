@@ -938,6 +938,7 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 		OpEqu(BackThread) &&
 		OpEqu(BackThreadUseCore3) &&
 		OpEqu(BackThreadQueueVsync) &&
+		OpEqu(DrawFrameSkip) &&
 
 		OpEqu(CAS_Sharpness) &&
 		OpEqu(FSR_Sharpness) &&
@@ -1227,6 +1228,7 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	BackThread = wrap.EntryBitfield(CURRENT_SETTINGS_SECTION, "GSBackThreadMode", BackThread ? 1 : 0, BackThread ? 1 : 0) != 0;
 	SettingsWrapEntryEx(BackThreadUseCore3, "GSBackThreadUseCore3");
 	SettingsWrapEntryEx(BackThreadQueueVsync, "GSBackThreadQueueVsync");
+	DrawFrameSkip = std::clamp(wrap.EntryBitfield(CURRENT_SETTINGS_SECTION, "DrawFrameSkip", DrawFrameSkip, DrawFrameSkip), 0, 2);
 
 	SettingsWrapBitfield(ShadeBoost_Brightness);
 	SettingsWrapBitfield(ShadeBoost_Contrast);

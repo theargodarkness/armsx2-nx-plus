@@ -645,6 +645,24 @@ public:
 	// code reads this, never m_regs, because under the split the draw runs after MTGS may have
 	// written the next frame's registers.
 	GSBackQueue::DrawPrivRegs m_draw_priv = {};
+
+	// Draw frame skip (GSConfig.DrawFrameSkip). Lives on the object that executes draws.
+	struct DrawFrameSkipState
+	{
+		u32 disp_hist[2] = {~0u, ~0u}; // the two display buffers most recently on a CRTC (FBP)
+		u32 cur_target = ~0u;          // display buffer the current game frame draws to
+		bool skipping = false;         // the current game frame's display draws are dropped
+		bool half_rate = false;        // automatic mode: currently dropping every other frame
+		u32 late_score = 0;            // automatic mode: recent late frames, decaying
+		u32 light_frames = 0;          // automatic mode: executed frames in a row with room to spare
+		u64 draw_ticks = 0;            // time inside Draw() for the current game frame
+		u32 present_skips = 0;         // presents held back in a row
+		u64 stale[8] = {};             // per FBP: the last game frame aimed here was dropped
+	};
+	DrawFrameSkipState m_dfs;
+	bool m_dfs_used = false;
+	bool DrawFrameSkipDropsDraw();
+	bool DrawFrameSkipHoldsPresent();
 	GSLocalMemory m_mem;
 	GSDrawingEnvironment m_env = {};
 	GSDrawingEnvironment m_prev_env = {};

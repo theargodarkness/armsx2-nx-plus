@@ -408,7 +408,7 @@ namespace
 		bucket.wall_ticks = armGetSystemTick();
 		bucket.ee_cycle = LoadRelaxed(cpuRegs.cycle);
 		bucket.vsyncs = LoadRelaxed(g_FrameCount);
-		bucket.fps = PerformanceMetrics::GetFPS();
+		bucket.fps = PerformanceMetrics::GetInternalFPS();
 		bucket.gpu_usage = PerformanceMetrics::GetGPUUsage();
 		bucket.tc_sources = s_tc_sources.load(std::memory_order_relaxed);
 		bucket.tc_render_targets = s_tc_render_targets.load(std::memory_order_relaxed);
@@ -652,7 +652,7 @@ namespace
 			return;
 
 		out += fmt::format("\nTimeline, {} ms per row. speed is emulated EE time over wall time, vps is emulated "
-						   "vsyncs per second, fps and gpu are the OSD's own running values, src/rt/ds are the "
+						   "vsyncs per second, ifps is the game's own frame rate as the OSD detects it, gpu the OSD's GPU load, src/rt/ds are the "
 						   "texture cache's source, render-target and depth-target counts and pg the GS pages "
 						   "holding at least one source (of 512), dps the GS draws executed per second, the rest "
 						   "are each thread's share of a core:\n",
@@ -660,7 +660,7 @@ namespace
 		for (std::size_t column = 0; column < order.size(); ++column)
 			out += fmt::format("  T{} = {}\n", column, s_capture.threads[order[column]].info.name.data());
 
-		out += "       t  speed    vps    fps    gpu   src   rt   ds   pg    dps";
+		out += "       t  speed    vps   ifps    gpu   src   rt   ds   pg    dps";
 		for (std::size_t column = 0; column < order.size(); ++column)
 			out += fmt::format("  {:>5}", fmt::format("T{}", column));
 		out += "\n";
@@ -1045,10 +1045,10 @@ namespace
 
 		const Pcsx2Config::GSOptions& gs = EmuConfig.GS;
 		out += fmt::format("gs: renderer {}, upscale {:.2f}x, blending {}, texture preload {}, hw download {}, back "
-						   "thread mode {}\n",
+						   "thread mode {}, draw frame skip {}\n",
 			Pcsx2Config::GSOptions::GetRendererName(gs.Renderer), gs.UpscaleMultiplier,
 			static_cast<int>(gs.AccurateBlendingUnit), static_cast<int>(gs.TexturePreloading),
-			static_cast<int>(gs.HWDownloadMode), static_cast<int>(gs.BackThread));
+			static_cast<int>(gs.HWDownloadMode), static_cast<int>(gs.BackThread), gs.DrawFrameSkip);
 		out += fmt::format("cpu: MTVU {}, EE cycle rate {}, EE cycle skip {}, thread pinning {}, fastmem {} (area {}, {})\n",
 			OnOff(EmuConfig.Speedhacks.vuThread), EmuConfig.Speedhacks.EECycleRate, EmuConfig.Speedhacks.EECycleSkip,
 			OnOff(EmuConfig.EnableThreadPinning), OnOff(EmuConfig.Cpu.Recompiler.EnableFastmem),
