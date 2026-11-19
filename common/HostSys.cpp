@@ -173,7 +173,13 @@ static u32 GetSpinTime()
 	}
 	else
 	{
+#ifdef ARMSX2_WAIT_SPIN_US
+		// Build-time override, for platforms without an environment to set
+		// WAIT_SPIN_MICROSECONDS in. 0 blocks in the kernel without spinning first.
+		return 1000 * ARMSX2_WAIT_SPIN_US;
+#else
 		return 50 * 1000; // 50µs
+#endif
 	}
 }
 

@@ -7,6 +7,8 @@ name: Switch Build
 #   diagnostics  links the validating deko3d and writes the first GPU queue error
 #                to exit.txt (ARMSX2_DK3D_DIAGNOSTICS); slower, for renderer crashes.
 #                Add -DARMSX2_DK3D_DIAG_SYNC=ON to wait on every submission as well.
+#   nospin       the release build with waiting threads blocking instead of spinning
+#                (ARMSX2_WAIT_SPIN_US=0); an experiment to compare against release
 #
 # The symbolize job is only for reading profiler reports: it rebuilds the commit
 # a report came from and prints function names for tools/switch/profile-offsets.txt.
@@ -49,6 +51,8 @@ jobs:
             cmake_args: ''
           - variant: diagnostics
             cmake_args: '-DARMSX2_DK3D_DIAGNOSTICS=ON'
+          - variant: nospin
+            cmake_args: '-DARMSX2_WAIT_SPIN_US=0'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
