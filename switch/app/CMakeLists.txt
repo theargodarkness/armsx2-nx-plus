@@ -46,6 +46,10 @@ target_link_libraries(yadokari PRIVATE
 
 target_link_options(yadokari PRIVATE -Wl,--wrap=pthread_create -Wl,--wrap=pthread_join)
 
+# newlib shims. NXVK needs most of them, but the core itself calls flock and
+# pthread_sigmask, so a deko3d-only build has to link them too.
+target_sources(yadokari PRIVATE nvk_compat.cpp)
+
 if(USE_VULKAN OR USE_OPENGL)
 	find_package(PkgConfig REQUIRED)
 	if(USE_OPENGL)
@@ -54,8 +58,6 @@ if(USE_VULKAN OR USE_OPENGL)
 		pkg_check_modules(NXVK REQUIRED nxvk)
 	endif()
 
-	# newlib shims required by NXVK.
-	target_sources(yadokari PRIVATE nvk_compat.cpp)
 	target_include_directories(yadokari PRIVATE ${NXVK_INCLUDE_DIRS})
 	target_compile_options(yadokari PRIVATE ${NXVK_CFLAGS_OTHER})
 
