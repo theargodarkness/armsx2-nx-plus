@@ -110,8 +110,12 @@ jobs:
       image: devkitpro/devkita64:latest
     env:
       # The commit the profiled NRO was built from, and the variant's CMake arguments.
-      PROFILE_COMMIT: 806990001eb88effae639a41946f0e679f907d60
-      PROFILE_CMAKE_ARGS: '-DARMSX2_DK3D_DIAGNOSTICS=ON'
+      PROFILE_COMMIT: e5622fe6622ef34fcf0139dafaef1bf0dc7cf21a
+      PROFILE_CMAKE_ARGS: ''
+      # Debug info only: GCC generates the same code with -g, and the layout check
+      # in the report says whether that held.
+      CFLAGS: -g
+      CXXFLAGS: -g
     steps:
       - name: Checkout tools
         uses: actions/checkout@v4
@@ -154,4 +158,5 @@ jobs:
           "$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm" -nC --defined-only "$elf" > nm.txt
           "$DEVKITPRO/devkitA64/bin/aarch64-none-elf-objcopy" -O binary "$elf" image.bin
           python3 tools-src/tools/switch/symbolize_profile.py \
-            tools-src/tools/switch/profile-offsets.txt nm.txt image.bin
+            tools-src/tools/switch/profile-offsets.txt nm.txt image.bin \
+            "$elf" "$DEVKITPRO/devkitA64/bin/aarch64-none-elf-addr2line"
