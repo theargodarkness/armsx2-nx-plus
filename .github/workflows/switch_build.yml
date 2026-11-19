@@ -1,0 +1,82 @@
+name: Switch Build
+
+# Builds the Nintendo Switch homebrew (yadokari.nro) with devkitA64 and uploads
+# it as a workflow artifact.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'claude/**'
+    paths-ignore:
+      - '**/*.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: switch-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Switch NRO (deko3d)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    container:
+      image: devkitpro/devkita64:latest
+    env:
+      # The DK3D shaders need this uam fork; devkitPro's packaged uam miscompiles some effects.
+      UAM_REPO: https://github.com/PalindromicBreadLoaf/uam
+      UAM_REV: c0d76aa9107d67edcd35a1b717ace87ee7939c68
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Mark the workspace as a safe git directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Install host tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ninja-build meson bison flex pkg-config python3 ca-certificates
+
+      - name: Install Switch libraries
+        run: |
+          dkp-pacman -Sy --noconfirm
+          dkp-pacman -S --needed --noconfirm \
+            deko3d switch-zlib switch-libpng switch-libjpeg-turbo switch-freetype \
+            switch-curl switch-ntfs-3g switch-lwext4
+
+      - name: Fetch uam
+        run: |
+          git clone "$UAM_REPO" switch/externals/uam
+          git -C switch/externals/uam checkout "$UAM_REV"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/Switch.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_VULKAN=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Locate the NRO
+        id: nro
+        run: |
+          nro="$(find build -name 'yadokari.nro' | head -n 1)"
+          test -n "$nro"
+          ls -l "$nro"
+          echo "path=$nro" >> "$GITHUB_OUTPUT"
+
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: yadokari-switch-${{ github.sha }}
+          path: ${{ steps.nro.outputs.path }}
+          if-no-files-found: error
