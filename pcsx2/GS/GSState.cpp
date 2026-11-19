@@ -5235,6 +5235,18 @@ void GSState::Transfer(const u8* mem, u32 size)
 						// hackfix), so a PATH1 tag never resumes across calls.
 						if (path.nloop == 0)
 							break;
+
+						// The resume can also use up the packet without finishing
+						// the tag. Then size is 0 and nloop is not, so the test
+						// below takes the partial-data arm, whose do-while handles
+						// one register before it looks at size: it reads one qword
+						// past the packet and wraps size to 2^32 - 1, and the outer
+						// loop then parses whatever follows the buffer as GIF tags
+						// until it faults (seen on Switch as a data abort in a
+						// packed-register handler, one page past the path buffer).
+						// The tag stays open and the next packet resumes it.
+						if (size == 0)
+							break;
 					}
 
 					// all data available? usually is
