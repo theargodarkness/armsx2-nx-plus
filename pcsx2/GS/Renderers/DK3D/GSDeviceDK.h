@@ -172,6 +172,9 @@ private:
 		u32 flags;
 	};
 	void PoolMemBlock(const PooledMemBlock& block);
+#ifdef ARMSX2_DK3D_DIAGNOSTICS
+	void DiagWaitAndCheck(DkFence* fence, const char* where);
+#endif
 
 	// Buffer frame's GPU resources so the CPU can record frame N+1 while the GPU is still executing frame N.
 	struct FrameContext

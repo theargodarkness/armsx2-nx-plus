@@ -186,6 +186,10 @@ elseif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_SYSTEM_PROCESSOR
 			add_compile_options(-fno-omit-frame-pointer -mno-omit-leaf-frame-pointer)
 			list(APPEND PCSX2_DEFS ARMSX2_FRAME_POINTERS=1)
 		endif()
+		option(ARMSX2_DK3D_DIAGNOSTICS "Link the validating deko3d and trace the first GPU queue error to exit.txt. Slow; for chasing renderer crashes." OFF)
+		if(ARMSX2_DK3D_DIAGNOSTICS)
+			list(APPEND PCSX2_DEFS ARMSX2_DK3D_DIAGNOSTICS=1)
+		endif()
 	elseif(NOT MSVC)
 		# Require atomic rmw instructions (LSE, ARMv8.1+). This is the upstream
 		# default and targets the broad arm64 ecosystem. MSVC (and clang-cl)

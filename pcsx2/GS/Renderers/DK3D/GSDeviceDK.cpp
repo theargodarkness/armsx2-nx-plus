@@ -20,6 +20,17 @@
 #include <cstdio>
 #include <cstring>
 
+// ARMSX2_DK3D_DIAGNOSTICS builds link the validating deko3d and trade speed for
+// attribution: every submission is waited on, and the first one that leaves the
+// queue in its error state is written to exit.txt with what that frame did.
+#ifdef ARMSX2_DK3D_DIAGNOSTICS
+#define DK3D_DIAG_COUNT(field) (s_diag.field++)
+#define DK3D_DIAG_ADD(field, value) (s_diag.field += (value))
+#else
+#define DK3D_DIAG_COUNT(field) ((void)0)
+#define DK3D_DIAG_ADD(field, value) ((void)0)
+#endif
+
 namespace
 {
 	constexpr u32 CMDBUF_SIZE = 16 * 1024 * 1024;
@@ -39,6 +50,33 @@ namespace
 	constexpr u32 TIMESTAMP_REPORT_SIZE = 16;
 	constexpr u32 TIMESTAMP_FRAME_STRIDE = 2 * TIMESTAMP_REPORT_SIZE;
 	constexpr u32 TIMESTAMP_VALUE_OFFSET = 8;
+
+#ifdef ARMSX2_DK3D_DIAGNOSTICS
+	struct DiagFrameStats
+	{
+		u32 hw_draws, stretch_rects, copy_rects, readbacks, readback_flushes;
+		u32 uploads, mip_uploads, mip_generates, cas_passes;
+		u32 stream_reallocs, descriptor_wraps, cmd_overflows, blocks_released;
+		u64 upload_bytes;
+	};
+	DiagFrameStats s_diag{};
+	DiagFrameStats s_diag_prev{};
+	u64 s_diag_frame = 0;
+	bool s_diag_reported = false;
+	u32 s_diag_api_errors = 0;
+
+	void DiagTraceStats(const char* label, const DiagFrameStats& d)
+	{
+		char line[400];
+		std::snprintf(line, sizeof(line),
+			"DK3D diag: %s: hw_draws=%u stretch=%u copy=%u readback=%u readback_flush=%u uploads=%u "
+			"(%llu bytes, %u to mip levels) mipgen=%u cas=%u stream_realloc=%u desc_wrap=%u cmd_overflow=%u released=%u",
+			label, d.hw_draws, d.stretch_rects, d.copy_rects, d.readbacks, d.readback_flushes, d.uploads,
+			static_cast<unsigned long long>(d.upload_bytes), d.mip_uploads, d.mip_generates, d.cas_passes,
+			d.stream_reallocs, d.descriptor_wraps, d.cmd_overflows, d.blocks_released);
+		Horizon::ExitTrace(line);
+	}
+#endif
 
 	struct ConvertVertex
 	{
@@ -262,6 +300,17 @@ bool GSDeviceDK::CreateDeviceObjects()
 	device_maker.cbDebug = [](void* userData, const char* context, DkResult result, const char* message) {
 		Console.Error("DK3D deko3d error: context='%s' result=%d message='%s'", context ? context : "?",
 			static_cast<int>(result), message ? message : "?");
+#ifdef ARMSX2_DK3D_DIAGNOSTICS
+		// The log file loses its tail in a crash; exit.txt is synced per line.
+		if (s_diag_api_errors++ < 32)
+		{
+			char line[400];
+			std::snprintf(line, sizeof(line), "DK3D diag: deko3d error at frame %llu: context='%s' result=%d message='%s'",
+				static_cast<unsigned long long>(s_diag_frame), context ? context : "?", static_cast<int>(result),
+				message ? message : "?");
+			Horizon::ExitTrace(line);
+		}
+#endif
 	};
 	Horizon::Breadcrumb("DK3D: dkDeviceCreate");
 	m_device = dkDeviceCreate(&device_maker);
@@ -473,6 +522,47 @@ void GSDeviceDK::IssueBarrier(DkBarrier mode, u32 invalidate_flags)
 		m_gpu_write_gen++;
 }
 
+#ifdef ARMSX2_DK3D_DIAGNOSTICS
+void GSDeviceDK::DiagWaitAndCheck(DkFence* fence, const char* where)
+{
+	if (s_diag_reported)
+		return;
+
+	// A faulted channel may never signal the fence, so poll it against the error state.
+	bool timed_out = false;
+	if (fence)
+	{
+		timed_out = true;
+		for (u32 i = 0; i < 100; i++)
+		{
+			if (dkFenceWait(fence, 100'000'000) == DkResult_Success)
+			{
+				timed_out = false;
+				break;
+			}
+			if (dkQueueIsInErrorState(m_queue))
+				break;
+		}
+	}
+	const bool error = dkQueueIsInErrorState(m_queue);
+	if (!error && !timed_out)
+		return;
+
+	s_diag_reported = true;
+	char line[400];
+	std::snprintf(line, sizeof(line),
+		"DK3D diag: %s after %s, frame %llu, submission %llu. streams: vtx=%u idx=%u ubo=%u staging=%u image_slots=%u, "
+		"pool=%llu bytes in %zu blocks",
+		error ? "queue entered its error state" : "fence not signalled within 10 s", where,
+		static_cast<unsigned long long>(s_diag_frame), static_cast<unsigned long long>(m_submitted_serial),
+		m_vertex_offset, m_index_offset, m_uniform_offset, m_staging_offset, m_next_image_slot,
+		static_cast<unsigned long long>(m_memblock_pool_bytes), m_memblock_pool.size());
+	Horizon::ExitTrace(line);
+	DiagTraceStats("this frame", s_diag);
+	DiagTraceStats("previous frame", s_diag_prev);
+}
+#endif
+
 void GSDeviceDK::WriteGPUTimestamp(u32 frame_index, u32 which)
 {
 	if (!m_timestamp_memblock)
@@ -563,6 +653,7 @@ void GSDeviceDK::AddCmdMemory(DkCmdBuf cmdbuf, size_t minReqSize)
 {
 	const u32 size = AlignUp(std::max<u32>(static_cast<u32>(minReqSize), CMDBUF_SIZE), DK_MEMBLOCK_ALIGNMENT);
 	Console.Warning("DK3D: command buffer overflowed (need %zu bytes). Allocating %u more.", minReqSize, size);
+	DK3D_DIAG_COUNT(cmd_overflows);
 
 	DkMemBlockMaker memblock_maker;
 	dkMemBlockMakerDefaults(&memblock_maker, m_device, size);
@@ -582,6 +673,7 @@ DkMemBlock GSDeviceDK::AllocateFrameMemory(u32 size)
 {
 	const u32 block_size = AlignUp(size, DK_MEMBLOCK_ALIGNMENT);
 	const u32 block_flags = DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached;
+	DK3D_DIAG_COUNT(stream_reallocs);
 	DkMemBlock block = AcquireMemBlock(block_size, block_flags);
 	if (!block)
 		pxFailRel("DK3D: failed to allocate frame stream memory.");
@@ -658,6 +750,7 @@ void GSDeviceDK::ReserveImageDescriptors(u32 count)
 	if (m_next_image_slot + count <= NUM_IMAGE_DESCRIPTORS)
 		return;
 
+	DK3D_DIAG_COUNT(descriptor_wraps);
 	m_descriptor_memblock = AllocateFrameMemory(NUM_IMAGE_DESCRIPTORS * sizeof(DkImageDescriptor));
 	m_image_descriptor_set = dkMemBlockGetGpuAddr(m_descriptor_memblock);
 	m_next_image_slot = 0;
@@ -722,6 +815,7 @@ void GSDeviceDK::DoStretchRectImpl(GSTextureDK* sTex, const GSVector4& sRect, GS
 		return;
 
 	BeginFrameIfNeeded();
+	DK3D_DIAG_COUNT(stretch_rects);
 	// This pass binds convert shaders/blend/vertex layout
 	InvalidateHWStateCache();
 
@@ -1088,6 +1182,7 @@ void GSDeviceDK::ReleaseMemBlock(DkMemBlock block, u32 size, u32 flags)
 	if (!block)
 		return;
 
+	DK3D_DIAG_COUNT(blocks_released);
 	FrameContext& ctx = m_frames[m_frame_index];
 	if (m_frame_active || ctx.fence_pending)
 		ctx.retired_memblocks.push_back({block, size, flags});
@@ -1338,6 +1433,13 @@ void GSDeviceDK::SubmitFrame()
 	else
 		dkQueueFlush(m_queue);
 
+#ifdef ARMSX2_DK3D_DIAGNOSTICS
+	DiagWaitAndCheck(&ctx.fence, "the frame submit");
+	s_diag_prev = s_diag;
+	s_diag = {};
+	s_diag_frame++;
+#endif
+
 	m_present_slot = -1;
 	m_frame_active = false;
 }
@@ -1408,6 +1510,7 @@ void GSDeviceDK::ReadbackTexture(GSTextureDK* src, const GSVector4i& rect, u32 s
 
 	// Preserve current frame work
 	BeginFrameIfNeeded();
+	DK3D_DIAG_COUNT(readbacks);
 	InvalidateHWStateCache();
 	CommitClear(src);
 
@@ -1441,7 +1544,12 @@ void GSDeviceDK::FlushReadback()
 	dkQueueFlush(m_queue);
 	m_submitted_serial++;
 	const Common::Timer::Value wait_start = Common::Timer::GetCurrentValue();
-	dkFenceWait(&m_readback_fence, -1);
+#ifdef ARMSX2_DK3D_DIAGNOSTICS
+	DK3D_DIAG_COUNT(readback_flushes);
+	DiagWaitAndCheck(&m_readback_fence, "a mid-frame readback submit");
+	if (!s_diag_reported)
+#endif
+		dkFenceWait(&m_readback_fence, -1);
 	m_completed_serial = m_submitted_serial;
 	PerformanceMetrics::AccumulateGSGpuWait(
 		static_cast<u64>(Common::Timer::ConvertValueToNanoseconds(Common::Timer::GetCurrentValue() - wait_start)));
@@ -1499,6 +1607,10 @@ bool GSDeviceDK::UploadToImage(GSTextureDK* dst_tex, const DkImageView& view, co
 	if (upload_size == 0)
 		return false;
 	BeginFrameIfNeeded();
+	DK3D_DIAG_COUNT(uploads);
+	DK3D_DIAG_ADD(upload_bytes, upload_size);
+	if (view.mipLevelOffset != 0)
+		DK3D_DIAG_COUNT(mip_uploads);
 	CommitClear(dst_tex);
 
 	DkGpuAddr src_addr;
@@ -1526,6 +1638,7 @@ void GSDeviceDK::GenerateImageMipmaps(GSTextureDK* tex, DkImage* image, int widt
 		return;
 
 	BeginFrameIfNeeded();
+	DK3D_DIAG_COUNT(mip_generates);
 	CommitClear(tex);
 
 	for (int level = 1; level < levels; level++)
@@ -1558,6 +1671,7 @@ void GSDeviceDK::DoCopyRect(GSTexture* sTex, GSTexture* dTex, const GSVector4i& 
 	if (!sTex || !dTex)
 		return;
 
+	DK3D_DIAG_COUNT(copy_rects);
 	GSTextureDK* const src = static_cast<GSTextureDK*>(sTex);
 	GSTextureDK* const dst = static_cast<GSTextureDK*>(dTex);
 
@@ -1757,6 +1871,7 @@ void GSDeviceDK::DoRenderHW(GSHWDrawConfig& config)
 	if (!m_tfx_shaders_ok)
 		return;
 
+	DK3D_DIAG_COUNT(hw_draws);
 	GSTextureDK* const rt = static_cast<GSTextureDK*>(config.rt);
 	GSTextureDK* const ds = static_cast<GSTextureDK*>(config.ds);
 	const bool has_ds = (ds && ds->IsDepth());
@@ -2531,6 +2646,7 @@ bool GSDeviceDK::DoCAS(GSTexture* sTex, GSTexture* dTex, bool sharpen_only,
 	if (!m_cas_shader_ok || !sTex || !dTex)
 		return false;
 
+	DK3D_DIAG_COUNT(cas_passes);
 	GSTextureDK* const sTexDK = static_cast<GSTextureDK*>(sTex);
 	GSTextureDK* const dTexDK = static_cast<GSTextureDK*>(dTex);
 

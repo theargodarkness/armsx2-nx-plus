@@ -2,6 +2,13 @@ name: Switch Build
 
 # Builds the Nintendo Switch homebrew (yadokari.nro) with devkitA64 and uploads
 # it as a workflow artifact.
+#
+#   release      the build to play on
+#   diagnostics  links the validating deko3d and writes the first GPU queue error
+#                to exit.txt (ARMSX2_DK3D_DIAGNOSTICS); slow, for renderer crashes
+#
+# The symbolize job is only for reading profiler reports: it rebuilds the commit
+# a report came from and prints function names for tools/switch/profile-offsets.txt.
 
 on:
   workflow_dispatch:
@@ -18,17 +25,26 @@ concurrency:
   group: switch-build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The DK3D shaders need this uam fork; devkitPro's packaged uam miscompiles some effects.
+  UAM_REPO: https://github.com/PalindromicBreadLoaf/uam
+  UAM_REV: c0d76aa9107d67edcd35a1b717ace87ee7939c68
+
 jobs:
   build:
-    name: Switch NRO (deko3d)
+    name: Switch NRO (${{ matrix.variant }})
     runs-on: ubuntu-latest
     timeout-minutes: 150
     container:
       image: devkitpro/devkita64:latest
-    env:
-      # The DK3D shaders need this uam fork; devkitPro's packaged uam miscompiles some effects.
-      UAM_REPO: https://github.com/PalindromicBreadLoaf/uam
-      UAM_REV: c0d76aa9107d67edcd35a1b717ace87ee7939c68
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: release
+            cmake_args: ''
+          - variant: diagnostics
+            cmake_args: '-DARMSX2_DK3D_DIAGNOSTICS=ON'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,22 +77,88 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/Switch.cmake" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_VULKAN=OFF
+            -DUSE_VULKAN=OFF ${{ matrix.cmake_args }}
 
       - name: Build
         run: cmake --build build -- -k 0
 
-      - name: Locate the NRO
-        id: nro
+      - name: Collect outputs
         run: |
-          nro="$(find build -name 'yadokari.nro' | head -n 1)"
-          test -n "$nro"
-          ls -l "$nro"
-          echo "path=$nro" >> "$GITHUB_OUTPUT"
+          mkdir out
+          cp "$(find build -name 'yadokari.nro' | head -n 1)" "out/yadokari-${{ matrix.variant }}.nro"
+          cp "$(find build -name 'yadokari.elf' | head -n 1)" "out/yadokari-${{ matrix.variant }}.elf"
+          ls -l out
 
       - name: Upload NRO
         uses: actions/upload-artifact@v4
         with:
-          name: yadokari-switch-${{ github.sha }}
-          path: ${{ steps.nro.outputs.path }}
+          name: yadokari-${{ matrix.variant }}-${{ github.sha }}
+          path: out/yadokari-${{ matrix.variant }}.nro
           if-no-files-found: error
+
+      - name: Upload ELF (symbols for profiler reports)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yadokari-${{ matrix.variant }}-elf-${{ github.sha }}
+          path: out/yadokari-${{ matrix.variant }}.elf
+          if-no-files-found: error
+
+  symbolize:
+    name: Symbolize profile offsets
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    container:
+      image: devkitpro/devkita64:latest
+    env:
+      # The commit the profiled NRO was built from.
+      PROFILE_COMMIT: 97dc9a8b4fc2a1a4ad8299ade155e0ce029fc74f
+    steps:
+      - name: Checkout tools
+        uses: actions/checkout@v4
+        with:
+          path: tools-src
+          sparse-checkout: tools/switch
+
+      - name: Checkout the profiled commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PROFILE_COMMIT }}
+          path: src
+          submodules: recursive
+
+      - name: Mark the workspace as a safe git directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Install host tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ninja-build meson bison flex pkg-config python3 python3-mako ca-certificates
+
+      - name: Install Switch libraries
+        run: |
+          dkp-pacman -Sy --noconfirm
+          dkp-pacman -S --needed --noconfirm \
+            deko3d switch-zlib switch-libpng switch-libjpeg-turbo switch-freetype \
+            switch-curl switch-ntfs-3g switch-lwext4
+
+      - name: Fetch uam
+        run: |
+          git clone "$UAM_REPO" src/switch/externals/uam
+          git -C src/switch/externals/uam checkout "$UAM_REV"
+
+      - name: Build the profiled commit
+        run: |
+          cmake -S src -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/Switch.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_VULKAN=OFF
+          cmake --build build --target yadokari
+
+      - name: Symbolize
+        run: |
+          elf="$(find build -name 'yadokari.elf' | head -n 1)"
+          "$DEVKITPRO/devkitA64/bin/aarch64-none-elf-nm" -nC --defined-only "$elf" > nm.txt
+          "$DEVKITPRO/devkitA64/bin/aarch64-none-elf-objcopy" -O binary "$elf" image.bin
+          python3 tools-src/tools/switch/symbolize_profile.py \
+            tools-src/tools/switch/profile-offsets.txt nm.txt image.bin

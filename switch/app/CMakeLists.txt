@@ -41,7 +41,7 @@ target_link_libraries(yadokari PRIVATE
 	PCSX2_FLAGS
 	-Wl,--end-group
 	usbhsfs
-	deko3d
+	$<IF:$<BOOL:${ARMSX2_DK3D_DIAGNOSTICS}>,deko3dd,deko3d>
 )
 
 target_link_options(yadokari PRIVATE -Wl,--wrap=pthread_create -Wl,--wrap=pthread_join)
