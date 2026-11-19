@@ -187,8 +187,12 @@ elseif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_SYSTEM_PROCESSOR
 			list(APPEND PCSX2_DEFS ARMSX2_FRAME_POINTERS=1)
 		endif()
 		option(ARMSX2_DK3D_DIAGNOSTICS "Link the validating deko3d and trace the first GPU queue error to exit.txt. Slow; for chasing renderer crashes." OFF)
+		option(ARMSX2_DK3D_DIAG_SYNC "With ARMSX2_DK3D_DIAGNOSTICS, also wait on every GPU submission. Names the exact faulting frame, but hides timing-dependent faults." OFF)
 		if(ARMSX2_DK3D_DIAGNOSTICS)
 			list(APPEND PCSX2_DEFS ARMSX2_DK3D_DIAGNOSTICS=1)
+			if(ARMSX2_DK3D_DIAG_SYNC)
+				list(APPEND PCSX2_DEFS ARMSX2_DK3D_DIAG_SYNC=1)
+			endif()
 		endif()
 	elseif(NOT MSVC)
 		# Require atomic rmw instructions (LSE, ARMv8.1+). This is the upstream

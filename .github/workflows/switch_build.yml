@@ -5,7 +5,8 @@ name: Switch Build
 #
 #   release      the build to play on
 #   diagnostics  links the validating deko3d and writes the first GPU queue error
-#                to exit.txt (ARMSX2_DK3D_DIAGNOSTICS); slow, for renderer crashes
+#                to exit.txt (ARMSX2_DK3D_DIAGNOSTICS); slower, for renderer crashes.
+#                Add -DARMSX2_DK3D_DIAG_SYNC=ON to wait on every submission as well.
 #
 # The symbolize job is only for reading profiler reports: it rebuilds the commit
 # a report came from and prints function names for tools/switch/profile-offsets.txt.

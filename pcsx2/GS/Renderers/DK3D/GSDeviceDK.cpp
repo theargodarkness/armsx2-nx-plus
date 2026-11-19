@@ -20,9 +20,10 @@
 #include <cstdio>
 #include <cstring>
 
-// ARMSX2_DK3D_DIAGNOSTICS builds link the validating deko3d and trade speed for
-// attribution: every submission is waited on, and the first one that leaves the
-// queue in its error state is written to exit.txt with what that frame did.
+// ARMSX2_DK3D_DIAGNOSTICS builds link the validating deko3d, check the queue after
+// every submission and write the first error, with what the frame did, to exit.txt.
+// Adding ARMSX2_DK3D_DIAG_SYNC also waits on every submission, which names the exact
+// frame but removes the CPU/GPU overlap that a timing-dependent fault needs.
 #ifdef ARMSX2_DK3D_DIAGNOSTICS
 #define DK3D_DIAG_COUNT(field) (s_diag.field++)
 #define DK3D_DIAG_ADD(field, value) (s_diag.field += (value))
@@ -33,6 +34,9 @@
 
 namespace
 {
+	// deko3d's own error reports, kept in every build: see the cbDebug handler.
+	u32 s_deko3d_error_traces = 0;
+
 	constexpr u32 CMDBUF_SIZE = 16 * 1024 * 1024;
 	constexpr u32 CODE_MEMSIZE = 256 * 1024;
 	constexpr u32 VERTEX_BUFFER_SIZE = 16 * 1024 * 1024;
@@ -63,7 +67,6 @@ namespace
 	DiagFrameStats s_diag_prev{};
 	u64 s_diag_frame = 0;
 	bool s_diag_reported = false;
-	u32 s_diag_api_errors = 0;
 
 	void DiagTraceStats(const char* label, const DiagFrameStats& d)
 	{
@@ -300,17 +303,14 @@ bool GSDeviceDK::CreateDeviceObjects()
 	device_maker.cbDebug = [](void* userData, const char* context, DkResult result, const char* message) {
 		Console.Error("DK3D deko3d error: context='%s' result=%d message='%s'", context ? context : "?",
 			static_cast<int>(result), message ? message : "?");
-#ifdef ARMSX2_DK3D_DIAGNOSTICS
 		// The log file loses its tail in a crash; exit.txt is synced per line.
-		if (s_diag_api_errors++ < 32)
+		if (s_deko3d_error_traces++ < 16)
 		{
 			char line[400];
-			std::snprintf(line, sizeof(line), "DK3D diag: deko3d error at frame %llu: context='%s' result=%d message='%s'",
-				static_cast<unsigned long long>(s_diag_frame), context ? context : "?", static_cast<int>(result),
-				message ? message : "?");
+			std::snprintf(line, sizeof(line), "DK3D: deko3d error: context='%s' result=%d message='%s'",
+				context ? context : "?", static_cast<int>(result), message ? message : "?");
 			Horizon::ExitTrace(line);
 		}
-#endif
 	};
 	Horizon::Breadcrumb("DK3D: dkDeviceCreate");
 	m_device = dkDeviceCreate(&device_maker);
@@ -551,7 +551,7 @@ void GSDeviceDK::DiagWaitAndCheck(DkFence* fence, const char* where)
 	s_diag_reported = true;
 	char line[400];
 	std::snprintf(line, sizeof(line),
-		"DK3D diag: %s after %s, frame %llu, submission %llu. streams: vtx=%u idx=%u ubo=%u staging=%u image_slots=%u, "
+		"DK3D diag: %s at %s, frame %llu, submission %llu. streams: vtx=%u idx=%u ubo=%u staging=%u image_slots=%u, "
 		"pool=%llu bytes in %zu blocks",
 		error ? "queue entered its error state" : "fence not signalled within 10 s", where,
 		static_cast<unsigned long long>(s_diag_frame), static_cast<unsigned long long>(m_submitted_serial),
@@ -1434,7 +1434,11 @@ void GSDeviceDK::SubmitFrame()
 		dkQueueFlush(m_queue);
 
 #ifdef ARMSX2_DK3D_DIAGNOSTICS
+#ifdef ARMSX2_DK3D_DIAG_SYNC
 	DiagWaitAndCheck(&ctx.fence, "the frame submit");
+#else
+	DiagWaitAndCheck(nullptr, "a frame submit (the fault may belong to an earlier frame still in flight)");
+#endif
 	s_diag_prev = s_diag;
 	s_diag = {};
 	s_diag_frame++;
