@@ -51,8 +51,8 @@ jobs:
             cmake_args: ''
           - variant: diagnostics
             cmake_args: '-DARMSX2_DK3D_DIAGNOSTICS=ON'
-          - variant: nospin
-            cmake_args: '-DARMSX2_WAIT_SPIN_US=0'
+          - variant: spin50
+            cmake_args: '-DARMSX2_WAIT_SPIN_US=50'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,8 +118,8 @@ jobs:
         include:
           - variant: release
             cmake_args: ''
-          - variant: nospin
-            cmake_args: '-DARMSX2_WAIT_SPIN_US=0'
+          - variant: spin50
+            cmake_args: '-DARMSX2_WAIT_SPIN_US=50'
     env:
       # The commit the profiled NRO was built from. Every variant is tried: the
       # layout check in each report says which one the NRO really was.

@@ -4412,8 +4412,8 @@ bool GSState::DrawFrameSkipOnVsync()
 	if (hold)
 		m_dfs.log_presents_held++;
 
-	// What the detector saw, every ten seconds, so a log shows why it did or did not act.
-	if ((m_dfs.vsyncs % 600) == 0)
+	// What the detector saw, every minute, so a log shows why it did or did not act.
+	if ((m_dfs.vsyncs % 3600) == 0)
 	{
 		// The four most drawn-into buffers of the window.
 		u32 top[4] = {0, 0, 0, 0};

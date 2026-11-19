@@ -3201,10 +3201,21 @@ void VMManager::Internal::Throttle(bool vsync_start)
 	// If any integer value of milliseconds exists, sleep it off.
 	// Prior comments suggested that 1-2 ms sleeps were inaccurate on some OSes;
 	// further testing suggests instead that this was utter bullshit.
+#ifdef __SWITCH__
+	// Horizon's sleep takes nanoseconds and wakes within tens of microseconds, so sleep to
+	// 150 us short of the deadline instead of a whole millisecond or more: the spin below
+	// was 5% of the EE thread's core, on a console with no core to spare.
+	{
+		const u64 margin = GetTickFrequency() / 6667;
+		if (msec >= 1 && uExpectedEnd > margin)
+			Threading::SleepUntil(uExpectedEnd - margin);
+	}
+#else
 	if (msec > 1)
 	{
 		Threading::Sleep(msec - 1);
 	}
+#endif
 
 	// Conversion to milliseconds loses some precision; after sleeping off whole milliseconds,
 	// spin the thread without sleeping until we finally reach our expected end time. Hint the

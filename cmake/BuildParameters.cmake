@@ -187,7 +187,7 @@ elseif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_SYSTEM_PROCESSOR
 			list(APPEND PCSX2_DEFS ARMSX2_FRAME_POINTERS=1)
 		endif()
 		option(ARMSX2_DK3D_DIAGNOSTICS "Link the validating deko3d and trace the first GPU queue error to exit.txt. Slow; for chasing renderer crashes." OFF)
-		set(ARMSX2_WAIT_SPIN_US "" CACHE STRING "Microseconds a waiting emulation thread spins before it blocks (default 50). The Switch has no spare core for a spinner once GS multi-threading is on; 0 blocks at once.")
+		set(ARMSX2_WAIT_SPIN_US "0" CACHE STRING "Microseconds a waiting emulation thread spins before it blocks. 0 blocks at once, the default here: with GS multi-threading on there are four busy threads on three cores, and a profile of Ratchet & Clank had them spend a third of a core spinning (GS back 16%, MTVU 10%, GS 4%) while the game was short of CPU. Other platforms use 50.")
 		if(NOT ARMSX2_WAIT_SPIN_US STREQUAL "")
 			add_compile_definitions(ARMSX2_WAIT_SPIN_US=${ARMSX2_WAIT_SPIN_US})
 		endif()
