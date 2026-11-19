@@ -105,17 +105,26 @@ jobs:
           if-no-files-found: error
 
   symbolize:
-    name: Symbolize profile offsets
+    name: Symbolize profile offsets (${{ matrix.variant }})
     # Opt in with [symbolize] in the commit message; it is a whole extra build.
     if: contains(github.event.head_commit.message, '[symbolize]')
     runs-on: ubuntu-latest
     timeout-minutes: 150
     container:
       image: devkitpro/devkita64:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: release
+            cmake_args: ''
+          - variant: nospin
+            cmake_args: '-DARMSX2_WAIT_SPIN_US=0'
     env:
-      # The commit the profiled NRO was built from, and the variant's CMake arguments.
-      PROFILE_COMMIT: e5622fe6622ef34fcf0139dafaef1bf0dc7cf21a
-      PROFILE_CMAKE_ARGS: ''
+      # The commit the profiled NRO was built from. Every variant is tried: the
+      # layout check in each report says which one the NRO really was.
+      PROFILE_COMMIT: 15304b59dfe709aeb787c0c8a72032b6ce6c74d6
+      PROFILE_CMAKE_ARGS: ${{ matrix.cmake_args }}
       # Debug info only: GCC generates the same code with -g, and the layout check
       # in the report says whether that held.
       CFLAGS: -g

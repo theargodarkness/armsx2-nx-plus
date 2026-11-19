@@ -83,6 +83,7 @@ def main():
     pair_counts = collections.defaultdict(collections.Counter)
     blocked = collections.defaultdict(collections.Counter)
     link_offsets = set()
+    extra = []  # X <label> <offset>: single addresses to resolve, such as a crash pc
 
     for line in open(offsets_path):
         f = line.split()
@@ -93,6 +94,9 @@ def main():
                 total = int(f[2])
             elif len(f) >= 4 and f[1] == "thread":
                 thread_names[int(f[2])] = " ".join(f[3:])
+            continue
+        if f[0] == "X":
+            extra.append((f[1], int(f[2], 16)))
             continue
         thread, count, pc = int(f[1]), int(f[2]), int(f[3], 16)
         if f[0] == "S":
@@ -120,6 +124,14 @@ def main():
             good += 1
     print(f"layout check: {good} of {checked} link-register offsets follow a call instruction")
     print(f"symbols: {len(addrs)}, image bytes: {len(image):#x}")
+
+    if extra:
+        chains = resolve_lines(elf, addr2line, [pc for _, pc in extra]) if elf else {}
+        print("\n=== Single addresses ===")
+        for label, pc in extra:
+            print(f"{label} m:{pc:x}  {lookup(pc)}")
+            for fn, at in chains.get(pc, []):
+                print(f"      {at}  {short(fn, 110)}")
 
     for thread in sorted(self_counts):
         name = thread_names.get(thread, str(thread))
