@@ -279,7 +279,15 @@ namespace vuaot
 			{
 				struct Owner
 				{
-					Entry* table = new Entry[4096](); // (value-initialised: every key 0)
+					// Zeroed by hand (every key 0). Value-initialising the array in a
+					// default member initialiser, new Entry[4096](), is an internal
+					// compiler error in devkitA64's GCC 15.2.
+					Entry* table;
+					Owner()
+						: table(new Entry[4096])
+					{
+						std::memset(static_cast<void*>(table), 0, sizeof(Entry) * 4096);
+					}
 					~Owner()
 					{
 						t_table = nullptr;
