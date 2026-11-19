@@ -33,6 +33,7 @@ env:
 jobs:
   build:
     name: Switch NRO (${{ matrix.variant }})
+    if: ${{ !contains(github.event.head_commit.message, '[symbolize-only]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     # The image already carries deko3d and every Switch portlib this needs. Do not add a
@@ -107,8 +108,9 @@ jobs:
     container:
       image: devkitpro/devkita64:latest
     env:
-      # The commit the profiled NRO was built from.
-      PROFILE_COMMIT: 97dc9a8b4fc2a1a4ad8299ade155e0ce029fc74f
+      # The commit the profiled NRO was built from, and the variant's CMake arguments.
+      PROFILE_COMMIT: 806990001eb88effae639a41946f0e679f907d60
+      PROFILE_CMAKE_ARGS: '-DARMSX2_DK3D_DIAGNOSTICS=ON'
     steps:
       - name: Checkout tools
         uses: actions/checkout@v4
@@ -142,7 +144,7 @@ jobs:
           cmake -S src -B build -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/Switch.cmake" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_VULKAN=OFF
+            -DUSE_VULKAN=OFF $PROFILE_CMAKE_ARGS
           cmake --build build --target yadokari
 
       - name: Symbolize
