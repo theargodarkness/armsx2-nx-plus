@@ -1108,9 +1108,8 @@ struct Pcsx2Config
 		/// the frame's draws.
 		bool BackThreadQueueVsync = true;
 		/// Hardware renderers: drop the draws of whole game frames aimed at the display buffers
-		/// and keep showing the previous image for them. 0 off, 1 automatic (only while frames are
-		/// arriving late), 2 every other frame. Only acts on games that flip between two display
-		/// buffers; see GSState::DrawFrameSkipDropsDraw.
+		/// and keep showing the previous image for them, so that at most 30 game frames a second
+		/// are drawn. 0 off, 1 on; see GSState::DrawFrameSkipDropsDraw.
 		int DrawFrameSkip = 0;
 
 		// RetroArch (.slangp) shader chain, applied at present after ShadeBoost/FXAA via

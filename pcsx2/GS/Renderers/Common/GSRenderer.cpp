@@ -1099,7 +1099,7 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 		}
 	}
 	// Draw frame skip: the buffer on screen belongs to a game frame whose draws were dropped.
-	if (DrawFrameSkipHoldsPresent())
+	if (DrawFrameSkipOnVsync())
 		skip_frame = true;
 	if (!skip_frame)
 	{

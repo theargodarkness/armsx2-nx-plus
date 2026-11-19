@@ -86,10 +86,6 @@ void GSvsync(u32 field, bool registers_written);
 // Manual frameskip (Android low-end devices): present 1 of every (frames+1)
 // VSyncs, skipping presentation of the rest. 0 disables. See GSRenderer::VSync.
 void GSSetManualFrameSkip(u32 frames);
-// Draw frame skip (GSOptions::DrawFrameSkip), automatic mode: the frame limiter reports each
-// emulated frame that finished late, and the renderer collects the count at the next game frame.
-void GSNoteLateFrame();
-u32 GSConsumeLateFrames();
 u32 GSGetManualFrameSkip();
 // Max presented-FPS cap. Caps the DISPLAY frame rate without touching emulation
 // speed — dropped on the GS thread in GSRenderer::VSync. 0 disables.

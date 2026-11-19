@@ -794,15 +794,6 @@ void GSgifTransfer3(u8* mem, u32 size)
 // setFrameSkip, read on the GS thread in GSRenderer::VSync. Relaxed atomic — a
 // stale read at most mis-skips a single frame, which is harmless.
 static std::atomic<u32> s_manual_frameskip{0};
-static std::atomic<u32> s_late_frames{0};
-void GSNoteLateFrame()
-{
-	s_late_frames.fetch_add(1, std::memory_order_relaxed);
-}
-u32 GSConsumeLateFrames()
-{
-	return s_late_frames.exchange(0, std::memory_order_relaxed);
-}
 void GSSetManualFrameSkip(u32 frames)
 {
 	s_manual_frameskip.store(frames, std::memory_order_relaxed);

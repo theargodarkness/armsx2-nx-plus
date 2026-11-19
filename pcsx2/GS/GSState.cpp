@@ -4259,23 +4259,31 @@ GSBackQueue::DrawPrivRegs GSState::CaptureDrawPrivRegs()
 
 // The draw executor's tail: everything from vertex trace to Draw() + perfmon,
 // running against installed (or, on the record-off path, live) state.
-// Draw frame skip. The console renders this game faster than it can be drawn in places, and
-// the result is the emulated speed wandering between 65% and 100%. Dropping the drawing of a
-// whole game frame keeps the speed where it should be at the cost of showing fewer frames.
+// Draw frame skip (GSConfig.DrawFrameSkip): draw at most 30 game frames a second.
 //
-// A frame is recognised by the game's own double buffering: the two buffers that have been on
-// the CRTC are the display buffers, and the draw stream moving from one to the other is the
-// start of the next game frame. That holds whatever the game's own frame rate is, where
-// counting vsyncs would cut a 30 fps game's frames in half. Only draws aimed at a display
-// buffer are dropped: a texture the game renders once and keeps is still rendered. A game
-// that draws into the buffer it shows never changes target, so nothing is dropped for it.
+// Ratchet & Clank switches itself between 60 and 30 frames a second, and at 60 it asks for more
+// draws than this console's render thread can execute, so the emulated speed sags exactly where
+// the game is trying to be smooth. Dropping every second frame while the game runs at 60 halves
+// that load and leaves the picture at a steady 30 in both of the game's modes.
 //
-// The buffer of a dropped frame holds a picture two frames old, so the present is held back
-// while that buffer is on screen (DrawFrameSkipHoldsPresent, from VSync on this same thread).
+// A game frame that starts less than two vsyncs after the last frame that was drawn is dropped:
+// that is every other frame at 60 and none at 30. Where a frame starts depends on how the game
+// puts its picture on screen, which the internal frame rate detection already tells apart:
+//   * it flips between two display buffers: the first draw aimed at the other buffer;
+//   * it draws elsewhere and copies to one display buffer: the first draw aimed away from the
+//     display buffer after the copy.
+// At most one frame starts per vsync, so draws that go back and forth inside a frame do not
+// split it.
+//
+// Dropped are the draws aimed at a display buffer and at any buffer the game has drawn into in
+// each of the last four frames. A buffer drawn once and kept (a texture rendered on demand) is
+// not in that set and is still drawn.
+//
+// A display buffer whose latest draws were dropped holds an old picture, so the present is held
+// back while it is on screen (DrawFrameSkipOnVsync, which runs in order with the draws).
 bool GSState::DrawFrameSkipDropsDraw()
 {
-	const int mode = GSConfig.DrawFrameSkip;
-	if (mode == 0)
+	if (GSConfig.DrawFrameSkip == 0)
 	{
 		if (m_dfs_used)
 		{
@@ -4297,102 +4305,150 @@ bool GSState::DrawFrameSkipDropsDraw()
 			m_dfs.stale[(disp >> 6) & 7] &= ~(1ull << (disp & 63));
 		m_dfs.disp_hist[1] = m_dfs.disp_hist[0];
 		m_dfs.disp_hist[0] = disp;
+		m_dfs.last_flip = m_dfs.vsyncs;
+		m_dfs.have_flipped = true;
 	}
 
-	const u32 fbp = m_context->FRAME.FBP;
-	if (m_dfs.disp_hist[1] == ~0u || (fbp != m_dfs.disp_hist[0] && fbp != m_dfs.disp_hist[1]))
-		return false;
+	// A game that has changed display buffer in the last two seconds is flipping. One that
+	// writes its display registers every frame without changing buffer is copying.
+	const bool flips = m_dfs.have_flipped && m_dfs.disp_hist[1] != ~0u && (m_dfs.vsyncs - m_dfs.last_flip) < 120;
 
-	const u64 bit = 1ull << (fbp & 63);
-	u64& stale = m_dfs.stale[(fbp >> 6) & 7];
+	const u32 fbp = m_context->FRAME.FBP & 511;
+	const bool is_display = (fbp == m_dfs.disp_hist[0] || fbp == m_dfs.disp_hist[1]);
+	const PerformanceMetrics::InternalFPSMethod method = PerformanceMetrics::GetInternalFPSMethod();
 
-	if (fbp != m_dfs.cur_target)
+	bool frame_start = false;
+	if (method == PerformanceMetrics::InternalFPSMethod::None)
 	{
-		// The first draw of the next game frame.
-		const bool had_frame = (m_dfs.cur_target != ~0u);
-		const bool last_dropped = m_dfs.skipping;
-		const u64 last_ticks = m_dfs.draw_ticks;
-		m_dfs.cur_target = fbp;
-		m_dfs.draw_ticks = 0;
-
-		bool drop = false;
-		if (mode == 2)
+	}
+	else if (flips)
+	{
+		if (is_display && fbp != m_dfs.cur_target)
 		{
-			drop = had_frame && !last_dropped;
+			frame_start = true;
+			m_dfs.cur_target = fbp;
+		}
+	}
+	else
+	{
+		frame_start = !is_display && m_dfs.last_was_display;
+	}
+	m_dfs.last_was_display = is_display;
+
+	if (frame_start && !m_dfs.started_this_vsync)
+	{
+		m_dfs.started_this_vsync = true;
+
+		for (u32 i = 0; i < 512; i++)
+		{
+			const bool touched = ((m_dfs.touched[i >> 6] >> (i & 63)) & 1) != 0;
+			m_dfs.streak[i] = touched ? static_cast<u8>(std::min<u32>(m_dfs.streak[i] + 1, 255)) : 0;
+		}
+		std::memset(m_dfs.touched, 0, sizeof(m_dfs.touched));
+
+		const bool drop = m_dfs.have_drawn_frame && (m_dfs.vsyncs - m_dfs.last_drawn_start) < 2;
+		if (!drop)
+		{
+			m_dfs.have_drawn_frame = true;
+			m_dfs.last_drawn_start = m_dfs.vsyncs;
+			m_dfs.log_frames_drawn++;
 		}
 		else
 		{
-			// Automatic: start on frames arriving late, stop once the frames that are drawn
-			// would leave room at the full rate. Late frames are counted by the limiter on the
-			// EE thread; two close together are needed, one alone is a hitch.
-			const u32 late = GSConsumeLateFrames();
-			m_dfs.late_score = std::min<u32>(m_dfs.late_score + late * 4, 16);
-			if (!m_dfs.half_rate)
-			{
-				if (m_dfs.late_score >= 8)
-				{
-					m_dfs.half_rate = true;
-					m_dfs.light_frames = 0;
-				}
-			}
-			else if (had_frame && !last_dropped)
-			{
-				// Draw() time is most of this thread's work for a frame. Under 55% of a
-				// frame for half a second of drawn frames, with none late meanwhile, is
-				// room to draw every frame again.
-				const u64 budget = GetTickFrequency() / 60;
-				if (late == 0 && last_ticks * 100 < budget * 55)
-					m_dfs.light_frames++;
-				else
-					m_dfs.light_frames = 0;
-				if (m_dfs.light_frames >= 30)
-				{
-					m_dfs.half_rate = false;
-					m_dfs.late_score = 0;
-				}
-			}
-			if (m_dfs.late_score > 0)
-				m_dfs.late_score--;
-			drop = m_dfs.half_rate && had_frame && !last_dropped;
+			m_dfs.log_frames_dropped++;
 		}
 		m_dfs.skipping = drop;
 	}
-
-	if (m_dfs.skipping)
+	else if (method == PerformanceMetrics::InternalFPSMethod::None)
 	{
-		stale |= bit;
+		m_dfs.skipping = false;
+	}
+
+	m_dfs.touched[fbp >> 6] |= 1ull << (fbp & 63);
+	m_dfs.log_draws[fbp]++;
+
+	const u64 bit = 1ull << (fbp & 63);
+	if (m_dfs.skipping && (is_display || m_dfs.streak[fbp] >= 4))
+	{
+		if (is_display)
+			m_dfs.stale[fbp >> 6] |= bit;
+		m_dfs.log_draws_dropped++;
 		return true;
 	}
-	stale &= ~bit;
+	if (is_display)
+		m_dfs.stale[fbp >> 6] &= ~bit;
 	return false;
 }
 
-bool GSState::DrawFrameSkipHoldsPresent()
+bool GSState::DrawFrameSkipOnVsync()
 {
 	if (GSConfig.DrawFrameSkip == 0 || !m_dfs_used)
 		return false;
 
+	m_dfs.vsyncs++;
+	m_dfs.started_this_vsync = false;
+
 	bool hold = false;
 	if (m_regs->PMODE.EN1)
 	{
-		const u32 fbp = m_regs->DISP[0].DISPFB.FBP;
-		hold |= ((m_dfs.stale[(fbp >> 6) & 7] >> (fbp & 63)) & 1) != 0;
+		const u32 fbp = m_regs->DISP[0].DISPFB.FBP & 511;
+		hold |= ((m_dfs.stale[fbp >> 6] >> (fbp & 63)) & 1) != 0;
 	}
 	if (m_regs->PMODE.EN2)
 	{
-		const u32 fbp = m_regs->DISP[1].DISPFB.FBP;
-		hold |= ((m_dfs.stale[(fbp >> 6) & 7] >> (fbp & 63)) & 1) != 0;
+		const u32 fbp = m_regs->DISP[1].DISPFB.FBP & 511;
+		hold |= ((m_dfs.stale[fbp >> 6] >> (fbp & 63)) & 1) != 0;
 	}
 
 	// Never more than three in a row: if the reading of the game's buffers is wrong, the
 	// picture must not freeze.
 	if (hold && m_dfs.present_skips < 3)
-	{
 		m_dfs.present_skips++;
-		return true;
+	else
+	{
+		hold = false;
+		m_dfs.present_skips = 0;
 	}
-	m_dfs.present_skips = 0;
-	return false;
+	if (hold)
+		m_dfs.log_presents_held++;
+
+	// What the detector saw, every ten seconds, so a log shows why it did or did not act.
+	if ((m_dfs.vsyncs % 600) == 0)
+	{
+		// The four most drawn-into buffers of the window.
+		u32 top[4] = {0, 0, 0, 0};
+		for (u32 n = 0; n < 4; n++)
+		{
+			u32 best = 0;
+			bool found = false;
+			for (u32 i = 0; i < 512; i++)
+			{
+				bool taken = false;
+				for (u32 k = 0; k < n; k++)
+					taken |= (top[k] == i);
+				if (!taken && (!found || m_dfs.log_draws[i] > m_dfs.log_draws[best]))
+				{
+					best = i;
+					found = true;
+				}
+			}
+			top[n] = best;
+		}
+		Console.WriteLn("Draw frame skip: method %d, flips %d, display %03x/%03x (regs %d:%03x %d:%03x), frames drawn %u dropped %u, "
+						"draws dropped %u, presents held %u, targets %03x:%u(s%u) %03x:%u(s%u) %03x:%u(s%u) %03x:%u(s%u)",
+			static_cast<int>(PerformanceMetrics::GetInternalFPSMethod()),
+			static_cast<int>(m_dfs.have_flipped && (m_dfs.vsyncs - m_dfs.last_flip) < 120), m_dfs.disp_hist[0] & 0xfff, m_dfs.disp_hist[1] & 0xfff,
+			static_cast<int>(m_regs->PMODE.EN1), static_cast<u32>(m_regs->DISP[0].DISPFB.FBP),
+			static_cast<int>(m_regs->PMODE.EN2), static_cast<u32>(m_regs->DISP[1].DISPFB.FBP),
+			m_dfs.log_frames_drawn, m_dfs.log_frames_dropped, m_dfs.log_draws_dropped, m_dfs.log_presents_held,
+			top[0], m_dfs.log_draws[top[0]], m_dfs.streak[top[0]], top[1], m_dfs.log_draws[top[1]], m_dfs.streak[top[1]],
+			top[2], m_dfs.log_draws[top[2]], m_dfs.streak[top[2]], top[3], m_dfs.log_draws[top[3]], m_dfs.streak[top[3]]);
+		std::memset(m_dfs.log_draws, 0, sizeof(m_dfs.log_draws));
+		m_dfs.log_frames_drawn = m_dfs.log_frames_dropped = 0;
+		m_dfs.log_draws_dropped = m_dfs.log_presents_held = 0;
+	}
+
+	return hold;
 }
 
 void GSState::DrawRecordTail(u64 draw_serial)
@@ -4497,18 +4553,7 @@ void GSState::DrawRecordTail(u64 draw_serial)
 	}
 
 	if (!skip_draw)
-	{
-		if (GSConfig.DrawFrameSkip == 1)
-		{
-			const u64 draw_start = GetCPUTicks();
-			Draw();
-			m_dfs.draw_ticks += GetCPUTicks() - draw_start;
-		}
-		else
-		{
-			Draw();
-		}
-	}
+		Draw();
 
 	g_perfmon.Put(GSPerfMon::Draw, 1);
 #ifdef __SWITCH__

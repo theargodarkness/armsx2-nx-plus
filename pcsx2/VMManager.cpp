@@ -3175,8 +3175,6 @@ void VMManager::Internal::Throttle(bool vsync_start)
 	else if (!vsync_start && sDeltaTime >= 0)
 		lateness = EECycleRateLateness::Late;
 	EECycleRateSampler::OnSegmentThrottled(segment_ticks, static_cast<u64>(s_limiter_ticks_per_frame), !vsync_start, lateness);
-	if (lateness != EECycleRateLateness::OnTime)
-		GSNoteLateFrame();
 
 	// If frame ran too long...
 #ifdef __SWITCH__

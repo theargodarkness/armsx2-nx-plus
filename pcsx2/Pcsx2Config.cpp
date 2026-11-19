@@ -1228,7 +1228,7 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	BackThread = wrap.EntryBitfield(CURRENT_SETTINGS_SECTION, "GSBackThreadMode", BackThread ? 1 : 0, BackThread ? 1 : 0) != 0;
 	SettingsWrapEntryEx(BackThreadUseCore3, "GSBackThreadUseCore3");
 	SettingsWrapEntryEx(BackThreadQueueVsync, "GSBackThreadQueueVsync");
-	DrawFrameSkip = std::clamp(wrap.EntryBitfield(CURRENT_SETTINGS_SECTION, "DrawFrameSkip", DrawFrameSkip, DrawFrameSkip), 0, 2);
+	DrawFrameSkip = std::clamp(wrap.EntryBitfield(CURRENT_SETTINGS_SECTION, "DrawFrameSkip", DrawFrameSkip, DrawFrameSkip), 0, 1);
 
 	SettingsWrapBitfield(ShadeBoost_Brightness);
 	SettingsWrapBitfield(ShadeBoost_Contrast);

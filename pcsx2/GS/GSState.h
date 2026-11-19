@@ -650,19 +650,29 @@ public:
 	struct DrawFrameSkipState
 	{
 		u32 disp_hist[2] = {~0u, ~0u}; // the two display buffers most recently on a CRTC (FBP)
-		u32 cur_target = ~0u;          // display buffer the current game frame draws to
-		bool skipping = false;         // the current game frame's display draws are dropped
-		bool half_rate = false;        // automatic mode: currently dropping every other frame
-		u32 late_score = 0;            // automatic mode: recent late frames, decaying
-		u32 light_frames = 0;          // automatic mode: executed frames in a row with room to spare
-		u64 draw_ticks = 0;            // time inside Draw() for the current game frame
+		u32 cur_target = ~0u;          // flipping games: display buffer the current frame draws to
+		bool last_was_display = false; // copying games: the previous draw was aimed at the display buffer
+		bool started_this_vsync = false;
+		bool skipping = false;         // the current game frame's draws are dropped
+		bool have_drawn_frame = false;
+		u32 vsyncs = 0;                // vsyncs seen by this thread
+		u32 last_drawn_start = 0;      // vsync count when the last drawn frame started
+		u32 last_flip = 0;             // vsync count when the display buffer last changed
+		bool have_flipped = false;
 		u32 present_skips = 0;         // presents held back in a row
-		u64 stale[8] = {};             // per FBP: the last game frame aimed here was dropped
+		u64 stale[8] = {};             // per FBP: the latest draws aimed here were dropped
+		u64 touched[8] = {};           // per FBP: drawn into during the current game frame
+		u8 streak[512] = {};           // per FBP: game frames in a row it was drawn into
+		u32 log_draws[512] = {};
+		u32 log_frames_drawn = 0;
+		u32 log_frames_dropped = 0;
+		u32 log_draws_dropped = 0;
+		u32 log_presents_held = 0;
 	};
 	DrawFrameSkipState m_dfs;
 	bool m_dfs_used = false;
 	bool DrawFrameSkipDropsDraw();
-	bool DrawFrameSkipHoldsPresent();
+	bool DrawFrameSkipOnVsync();
 	GSLocalMemory m_mem;
 	GSDrawingEnvironment m_env = {};
 	GSDrawingEnvironment m_prev_env = {};
