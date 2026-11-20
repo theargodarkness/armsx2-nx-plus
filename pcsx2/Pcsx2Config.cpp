@@ -591,6 +591,11 @@ void Pcsx2Config::RecompilerOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitBool(PauseOnTLBMiss);
 	SettingsWrapBitBool(EnableVUProgramCache);
 	SettingsWrapBitBool(EnableVUAot);
+#ifdef __SWITCH__
+	// Whatever the settings file says: see the constructor. A file written by an earlier
+	// build has the old default of on in it, and the stalls it causes look like any others.
+	EnableVUAot = false;
+#endif
 
 	SettingsWrapBitBool(vu0Overflow);
 	SettingsWrapBitBool(vu0ExtraOverflow);

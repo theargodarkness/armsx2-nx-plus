@@ -53,6 +53,15 @@ IopThreadMode IopThread::ResolveMode(const Pcsx2Config& config, const HostCpuInf
 	if (config.Speedhacks.iopThreadLockstep)
 		return IopThreadMode::Lockstep;
 
+#ifdef __SWITCH__
+	// The Switch gives an application three cores, which the rule below turns down. But its
+	// EE thread is the one at its limit (a busy EE at the lowest cycle rate fills core 0),
+	// while the other two cores have about one core's worth idle between them once the GS
+	// work is capped, and a fifth of the EE thread's time is the IOP and SPU2. So the player
+	// who turns the IOP thread on gets it here.
+	return IopThreadMode::Threaded;
+#endif
+
 	// EE and GS threads, the IOP thread, and the VU1 thread when MTVU is on.
 	const u32 threads = 2 + (config.Speedhacks.vuThread ? 1 : 0) + 1;
 	const u32 spare_cores_for_the_rest = 2;

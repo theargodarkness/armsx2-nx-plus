@@ -1050,8 +1050,8 @@ namespace
 			static_cast<int>(gs.AccurateBlendingUnit), static_cast<int>(gs.TexturePreloading),
 			static_cast<int>(gs.HWDownloadMode), static_cast<int>(gs.BackThread), gs.DrawFrameSkip,
 			OnOff(gs.PresentPacing));
-		out += fmt::format("cpu: vu-aot {}, MTVU {}, EE cycle rate {}, EE cycle skip {}, thread pinning {}, fastmem {} (area {}, {})\n",
-			OnOff(EmuConfig.Cpu.Recompiler.EnableVUAot), OnOff(EmuConfig.Speedhacks.vuThread), EmuConfig.Speedhacks.EECycleRate, EmuConfig.Speedhacks.EECycleSkip,
+		out += fmt::format("cpu: vu-aot {}, IOP thread {}, MTVU {}, EE cycle rate {}, EE cycle skip {}, thread pinning {}, fastmem {} (area {}, {})\n",
+			OnOff(EmuConfig.Cpu.Recompiler.EnableVUAot), OnOff(EmuConfig.Speedhacks.iopThread), OnOff(EmuConfig.Speedhacks.vuThread), EmuConfig.Speedhacks.EECycleRate, EmuConfig.Speedhacks.EECycleSkip,
 			OnOff(EmuConfig.EnableThreadPinning), OnOff(EmuConfig.Cpu.Recompiler.EnableFastmem),
 			vtlb_FastmemAreaUnavailable() ? "unavailable" : "mapped", HorizonFastmem::GetSupportReason());
 		const Pcsx2Config::RecompilerOptions& rec = EmuConfig.Cpu.Recompiler;

@@ -22,6 +22,8 @@
 #include "pcsx2/MTGS.h"
 #include "pcsx2/VMManager.h"
 
+#include <switch.h>
+
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -318,6 +320,13 @@ void Host::OnSaveStateSaved(const std::string_view filename)
 
 void Host::PumpMessagesOnCPUThread()
 {
+	// While a game runs, the main loop is inside VMManager::Execute and never gets back to its
+	// own appletMainLoop call, so this per-frame call is the only place the system's messages
+	// are read. Without it a close from the HOME menu during play went unanswered until the
+	// system killed the process, which it reports as a crash.
+	if (HorizonHost::IsCPUThread() && VMManager::GetState() == VMState::Running && !appletMainLoop())
+		HorizonHost::RequestExit();
+
 	for (;;)
 	{
 		std::function<void()> task;
