@@ -991,20 +991,34 @@ void GSRenderer::PacePresent()
 	if (!GSConfig.PresentPacing || m_vsync_post_ticks == 0)
 		return;
 
+	// The delay follows how far behind the EE this thread actually runs. One frame was the
+	// first choice and was too short: a 30 FPS frame's draws arrive over two vsyncs and take
+	// about 20 ms to execute, so up to a quarter of presents missed it (worst 35 ms) and went
+	// out unpaced. A late present lengthens the delay by what it missed plus a little, up to
+	// two and a half frames; on-time ones let it drift back toward one frame with a half-life
+	// of about twenty seconds, slowly enough that the drift itself is not a pacing error.
 	const u64 frame = GetTickFrequency() / 60;
-	const u64 target = m_vsync_post_ticks + frame;
+	if (m_pace_delay == 0)
+		m_pace_delay = frame * 3 / 2;
+	const u64 target = m_vsync_post_ticks + m_pace_delay;
 	const u64 now = GetCPUTicks();
 	if (now < target)
 	{
 		// A target far in the future is a stale or foreign stamp, not a frame to wait for.
-		if (target - now <= frame * 2)
+		if (target - now <= frame * 3)
 			Threading::SleepUntil(target);
 		m_pace_early++;
+		if (m_pace_delay > frame)
+			m_pace_delay -= (m_pace_delay - frame) / 2048;
 	}
 	else
 	{
+		const u64 missed = now - target;
 		m_pace_late++;
-		m_pace_late_max = std::max(m_pace_late_max, now - target);
+		m_pace_late_max = std::max(m_pace_late_max, missed);
+		// A miss of several frames is a stall (a load, a pause), not this thread's usual lag.
+		if (missed < frame * 3)
+			m_pace_delay = std::min(m_pace_delay + missed + frame / 16, frame * 5 / 2);
 	}
 }
 
@@ -1026,10 +1040,11 @@ void GSRenderer::NotePresented(bool new_image)
 
 	if (++m_pace_presents >= 600)
 	{
-		Console.WriteLn("Present pacing %s: %u held to the beat, %u late (worst %.1f ms); new pictures after 1/2/3/4/5+ "
-						"refreshes: %u/%u/%u/%u/%u",
+		Console.WriteLn("Present pacing %s: %u held to the beat, %u late (worst %.1f ms), delay %.1f ms; new pictures after "
+						"1/2/3/4/5+ refreshes: %u/%u/%u/%u/%u",
 			GSConfig.PresentPacing ? "on" : "off", m_pace_early, m_pace_late,
 			static_cast<double>(m_pace_late_max) * 1000.0 / static_cast<double>(GetTickFrequency()),
+			static_cast<double>(m_pace_delay) * 1000.0 / static_cast<double>(GetTickFrequency()),
 			m_pace_gaps[0], m_pace_gaps[1], m_pace_gaps[2], m_pace_gaps[3], m_pace_gaps[4]);
 		m_pace_presents = m_pace_early = m_pace_late = 0;
 		m_pace_late_max = 0;

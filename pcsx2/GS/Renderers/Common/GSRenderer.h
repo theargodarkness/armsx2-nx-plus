@@ -47,6 +47,7 @@ private:
 	// Present pacing (GSConfig.PresentPacing) and its log.
 	u64 m_vsync_post_ticks = 0;
 	u64 m_pace_last_new = 0;
+	u64 m_pace_delay = 0;
 	u64 m_pace_late_max = 0;
 	u32 m_pace_presents = 0;
 	u32 m_pace_early = 0;
