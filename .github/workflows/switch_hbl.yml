@@ -1,0 +1,57 @@
+name: Switch Loader (core 3)
+
+# Builds nx-hbloader with one change: its process may use CPU core 3 as well as
+# cores 0-2. The stock loader caps homebrew at three cores, which is what the
+# "Use Core 3 for GS Multi-threading" setting needs lifted. The result replaces
+# /atmosphere/hbl.nsp on the SD card (keep a copy of the original).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'claude/**'
+    paths:
+      - '.github/workflows/switch_hbl.yml'
+
+permissions:
+  contents: read
+
+env:
+  HBL_REPO: https://github.com/switchbrew/nx-hbloader
+  HBL_REV: 82b95122c5ae8dc059bf23893ba7623c72c86773 # v2.4.5
+
+jobs:
+  hbl:
+    name: hbl.nsp with core 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: devkitpro/devkita64:latest
+    steps:
+      - name: Fetch nx-hbloader
+        run: |
+          git init hbl
+          cd hbl
+          git fetch --depth 1 "$HBL_REPO" "$HBL_REV"
+          git checkout FETCH_HEAD
+
+      - name: Allow core 3
+        run: |
+          cd hbl
+          grep -q '"highest_cpu_id": 2' hbl.json
+          sed -i 's/"highest_cpu_id": 2/"highest_cpu_id": 3/' hbl.json
+          git diff
+
+      - name: Build
+        run: |
+          cd hbl
+          make -j"$(nproc)"
+          ls -l hbl.nsp
+          sha256sum hbl.nsp
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: hbl-core3-${{ github.sha }}
+          path: hbl/hbl.nsp
+          if-no-files-found: error
