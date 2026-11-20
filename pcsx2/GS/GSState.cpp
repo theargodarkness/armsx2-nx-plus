@@ -4380,6 +4380,81 @@ bool GSState::DrawFrameSkipDropsDraw()
 	return false;
 }
 
+// Classify each executed draw against the one before it by which registers differ.
+//   0 nothing differs (flushed for another reason: a transfer, a register rewrite, the vertex limit)
+//   1 only the texture address or format   2 only the palette (CBP/CSA/CLD) of the same texture
+//   3 only PRIM   4 only blend/test (ALPHA, TEST, FBA)   5 only sampling (TEX1, CLAMP)
+//   6 target or scissor (FRAME, ZBUF, SCISSOR)   7 more than one of the above
+void GSState::NoteDrawStats()
+{
+	DrawStats& d = m_dstat;
+	const bool tme = PRIM->TME;
+	const u64 tex0 = tme ? m_context->TEX0.U64 : 0;
+	const u64 tex1 = tme ? m_context->TEX1.U64 : 0;
+	const u64 clamp = tme ? m_context->CLAMP.U64 : 0;
+	const u32 prim = PRIM->U32[0] & 0x5ff; // without CTXT: which context a draw uses is not state
+	const u32 count = static_cast<u32>(m_index->tail);
+
+	d.draws++;
+	d.indices += count;
+	d.size[count <= 6 ? 0 : count <= 24 ? 1 : count <= 96 ? 2 : count <= 384 ? 3 : 4]++;
+
+	if (d.have_prev)
+	{
+		// CBP is bits 37-50, CSA 56-60, CLD 61-63; everything else in TEX0 is the texture itself.
+		const u64 pal_mask = (u64{0x3fff} << 37) | (u64{0x1f} << 56) | (u64{0x7} << 61);
+		const u64 tex_diff = tex0 ^ d.tex0;
+		u32 kinds = 0, which = 0;
+		const auto add = [&](bool differs, u32 kind) {
+			if (differs)
+			{
+				kinds++;
+				which = kind;
+			}
+		};
+		add((tex_diff & ~pal_mask) != 0, 1);
+		add((tex_diff & ~pal_mask) == 0 && tex_diff != 0, 2);
+		add(prim != d.prim, 3);
+		add(m_context->ALPHA.U64 != d.alpha || m_context->TEST.U64 != d.test || m_context->FBA.U64 != d.fba, 4);
+		add(tex1 != d.tex1 || clamp != d.clamp, 5);
+		add(m_context->FRAME.U64 != d.frame || m_context->ZBUF.U64 != d.zbuf || m_context->SCISSOR.U64 != d.scissor, 6);
+		d.diff[kinds == 0 ? 0 : kinds == 1 ? which : 7]++;
+	}
+
+	d.have_prev = true;
+	d.frame = m_context->FRAME.U64;
+	d.zbuf = m_context->ZBUF.U64;
+	d.tex0 = tex0;
+	d.tex1 = tex1;
+	d.clamp = clamp;
+	d.alpha = m_context->ALPHA.U64;
+	d.test = m_context->TEST.U64;
+	d.scissor = m_context->SCISSOR.U64;
+	d.fba = m_context->FBA.U64;
+	d.prim = prim;
+}
+
+void GSState::NoteDrawStatsVsync()
+{
+	DrawStats& d = m_dstat;
+	if (++d.vsyncs < 600)
+		return;
+
+	if (d.draws != 0)
+	{
+		Console.WriteLn("Draw stats: %u draws and %llu indices per vsync; indices per draw up to 6/24/96/384/more: %u/%u/%u/%u/%u; "
+						"against the previous draw: same state %u, texture %u, palette only %u, prim %u, blend/test %u, sampling %u, "
+						"target/scissor %u, several %u",
+			d.draws / d.vsyncs, static_cast<unsigned long long>(d.indices / d.vsyncs),
+			d.size[0], d.size[1], d.size[2], d.size[3], d.size[4],
+			d.diff[0], d.diff[1], d.diff[2], d.diff[3], d.diff[4], d.diff[5], d.diff[6], d.diff[7]);
+	}
+	d.vsyncs = d.draws = 0;
+	d.indices = 0;
+	std::memset(d.size, 0, sizeof(d.size));
+	std::memset(d.diff, 0, sizeof(d.diff));
+}
+
 bool GSState::DrawFrameSkipOnVsync()
 {
 	if (GSConfig.DrawFrameSkip == 0 || !m_dfs_used)
@@ -4488,6 +4563,7 @@ void GSState::DrawRecordTail(u64 draw_serial)
 			(m_draw_priv.dispfb_fbp[1] == frame_fbp && m_draw_priv.display_enabled[1]))
 			m_display_drawn_since_vsync = true;
 	}
+	NoteDrawStats();
 
 	// Update scissor, it may have been modified by a previous draw
 	m_env.CTXT[PRIM->CTXT].UpdateScissor();

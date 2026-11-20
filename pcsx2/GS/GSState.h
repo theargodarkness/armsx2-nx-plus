@@ -675,6 +675,21 @@ public:
 	bool m_dfs_used = false;
 	bool DrawFrameSkipDropsDraw();
 	bool DrawFrameSkipOnVsync();
+
+	// What the draws of a frame look like and why consecutive ones could not be one draw.
+	// Logged every ten seconds; a measurement for deciding where draw merging could pay.
+	struct DrawStats
+	{
+		u64 frame = 0, zbuf = 0, tex0 = 0, tex1 = 0, clamp = 0, alpha = 0, test = 0, scissor = 0, fba = 0;
+		u32 prim = 0;
+		bool have_prev = false;
+		u32 vsyncs = 0, draws = 0;
+		u64 indices = 0;
+		u32 size[5] = {};  // index count: up to 6, 24, 96, 384, more
+		u32 diff[8] = {};  // see NoteDrawStats
+	} m_dstat;
+	void NoteDrawStats();
+	void NoteDrawStatsVsync();
 	GSLocalMemory m_mem;
 	GSDrawingEnvironment m_env = {};
 	GSDrawingEnvironment m_prev_env = {};
