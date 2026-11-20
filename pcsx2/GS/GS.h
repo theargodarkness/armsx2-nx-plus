@@ -86,6 +86,10 @@ void GSvsync(u32 field, bool registers_written);
 // Manual frameskip (Android low-end devices): present 1 of every (frames+1)
 // VSyncs, skipping presentation of the rest. 0 disables. See GSRenderer::VSync.
 void GSSetManualFrameSkip(u32 frames);
+// When the EE thread posted the vsync the GS thread is about to run (host ticks, 0 if unknown).
+// Set and read on the GS thread only.
+void GSSetVsyncPostTicks(u64 ticks);
+u64 GSGetVsyncPostTicks();
 u32 GSGetManualFrameSkip();
 // Max presented-FPS cap. Caps the DISPLAY frame rate without touching emulation
 // speed — dropped on the GS thread in GSRenderer::VSync. 0 disables.

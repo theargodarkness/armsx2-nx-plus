@@ -4482,6 +4482,12 @@ void GSState::DrawRecordTail(u64 draw_serial)
 		m_drawlist_bbox.clear();
 		return;
 	}
+	{
+		const u32 frame_fbp = m_context->FRAME.FBP;
+		if ((m_draw_priv.dispfb_fbp[0] == frame_fbp && m_draw_priv.display_enabled[0]) ||
+			(m_draw_priv.dispfb_fbp[1] == frame_fbp && m_draw_priv.display_enabled[1]))
+			m_display_drawn_since_vsync = true;
+	}
 
 	// Update scissor, it may have been modified by a previous draw
 	m_env.CTXT[PRIM->CTXT].UpdateScissor();

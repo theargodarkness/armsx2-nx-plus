@@ -3566,6 +3566,11 @@ void FullscreenUI::DrawGraphicsSettingsPage(SettingsInterface* bsi, bool show_ad
 			FSUI_CSTR("Draws every second frame while a game runs at 60 FPS and every frame while it runs at 30, for a steady 30 FPS picture and half the rendering work. Hardware renderers; may break effects in some games."),
 			"EmuCore/GS", "DrawFrameSkip", 0, s_draw_frame_skip, std::size(s_draw_frame_skip), true);
 #ifdef __SWITCH__
+		DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_FORWARD, "Even Frame Pacing"),
+			FSUI_CSTR("Shows each frame a fixed time after the game finished it instead of as soon as it is drawn, so frames are evenly spaced. Adds up to one frame of delay."),
+			"EmuCore/GS", "PresentPacing", true);
+#endif
+#ifdef __SWITCH__
 		DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_MICROCHIP, "Use Core 3 for GS Multi-threading"),
 			FSUI_CSTR("Moves the GS parsing thread to the fourth core. Requires a loader granting core 3. Experimental."),
 			"EmuCore/GS", "GSBackThreadUseCore3", false,

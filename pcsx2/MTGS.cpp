@@ -12,10 +12,12 @@
 #include "VMManager.h"
 
 #include "common/FPControl.h"
+#include "common/HostSys.h"
 #include "common/ScopedGuard.h"
 #include "common/StringUtil.h"
 #include "common/WrappedMemCopy.h"
 
+#include <cstring>
 #include <list>
 #include <mutex>
 #include <thread>
@@ -260,6 +262,11 @@ void MTGS::PostVsyncStart(bool registers_written)
 	remainder[1] = GSIMR._u32;
 	(GSRegSIGBLID&)remainder[2] = GSSIGLBLID;
 	remainder[4] = static_cast<u32>(registers_written);
+	// When the EE thread reached this vsync, for present pacing (GSRenderer::PacePresent).
+	// The frame limiter keeps these evenly spaced; the GS threads get to the vsync whenever
+	// they have worked through the frame before it.
+	const u64 post_ticks = GetCPUTicks();
+	std::memcpy(&remainder[6], &post_ticks, sizeof(post_ticks));
 	s_packet_writepos = (s_packet_writepos + 2) & RingBufferMask;
 
 	SendDataPacket();
@@ -529,6 +536,12 @@ void MTGS::MainLoop()
 							((u32&)RingBuffer.Regs[0x1000]) = remainder[0];
 							((u32&)RingBuffer.Regs[0x1010]) = remainder[1];
 							((GSRegSIGBLID&)RingBuffer.Regs[0x1080]) = (GSRegSIGBLID&)remainder[2];
+
+							{
+								u64 post_ticks;
+								std::memcpy(&post_ticks, &remainder[6], sizeof(post_ticks));
+								GSSetVsyncPostTicks(post_ticks);
+							}
 
 							// CSR & 0x2000; is the pageflip id.
 							GSvsync((((u32&)RingBuffer.Regs[0x1000]) & 0x2000) ? 0 : 1, remainder[4] != 0);

@@ -43,6 +43,17 @@ private:
 	u32 m_skipped_duplicate_frames = 0;
 	/// Manual frame-skip phase counter (Android "Frame Skip" 0..5). GS thread only.
 	u32 m_manual_frameskip_phase = 0;
+
+	// Present pacing (GSConfig.PresentPacing) and its log.
+	u64 m_vsync_post_ticks = 0;
+	u64 m_pace_last_new = 0;
+	u64 m_pace_late_max = 0;
+	u32 m_pace_presents = 0;
+	u32 m_pace_early = 0;
+	u32 m_pace_late = 0;
+	u32 m_pace_gaps[5] = {};
+	void PacePresent();
+	void NotePresented(bool new_image);
 	/// Accumulator pacer for the max-presented-FPS cap: the tick deadline at which the next
 	/// present is due. 0 = not started/disabled. GS thread only.
 	u64 m_next_present_deadline = 0;

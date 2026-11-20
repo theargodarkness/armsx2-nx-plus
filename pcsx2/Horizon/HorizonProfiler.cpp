@@ -1045,12 +1045,13 @@ namespace
 
 		const Pcsx2Config::GSOptions& gs = EmuConfig.GS;
 		out += fmt::format("gs: renderer {}, upscale {:.2f}x, blending {}, texture preload {}, hw download {}, back "
-						   "thread mode {}, draw frame skip {}\n",
+						   "thread mode {}, draw frame skip {}, present pacing {}\n",
 			Pcsx2Config::GSOptions::GetRendererName(gs.Renderer), gs.UpscaleMultiplier,
 			static_cast<int>(gs.AccurateBlendingUnit), static_cast<int>(gs.TexturePreloading),
-			static_cast<int>(gs.HWDownloadMode), static_cast<int>(gs.BackThread), gs.DrawFrameSkip);
-		out += fmt::format("cpu: MTVU {}, EE cycle rate {}, EE cycle skip {}, thread pinning {}, fastmem {} (area {}, {})\n",
-			OnOff(EmuConfig.Speedhacks.vuThread), EmuConfig.Speedhacks.EECycleRate, EmuConfig.Speedhacks.EECycleSkip,
+			static_cast<int>(gs.HWDownloadMode), static_cast<int>(gs.BackThread), gs.DrawFrameSkip,
+			OnOff(gs.PresentPacing));
+		out += fmt::format("cpu: vu-aot {}, MTVU {}, EE cycle rate {}, EE cycle skip {}, thread pinning {}, fastmem {} (area {}, {})\n",
+			OnOff(EmuConfig.Cpu.Recompiler.EnableVUAot), OnOff(EmuConfig.Speedhacks.vuThread), EmuConfig.Speedhacks.EECycleRate, EmuConfig.Speedhacks.EECycleSkip,
 			OnOff(EmuConfig.EnableThreadPinning), OnOff(EmuConfig.Cpu.Recompiler.EnableFastmem),
 			vtlb_FastmemAreaUnavailable() ? "unavailable" : "mapped", HorizonFastmem::GetSupportReason());
 		const Pcsx2Config::RecompilerOptions& rec = EmuConfig.Cpu.Recompiler;

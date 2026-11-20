@@ -493,6 +493,14 @@ Pcsx2Config::RecompilerOptions::RecompilerOptions()
 	PauseOnTLBMiss = false;
 	EnableVUProgramCache = false; // default off; opt-in until the on-disk cache is validated on the target hardware
 	EnableVUAot = true; // default on (arm64 builds; the setting is ignored elsewhere); it also turns the VU program cache on
+#ifdef __SWITCH__
+	// Off on the Switch. Its saved programs are never reused there (the cache refuses another
+	// build's files and cannot place this build's module), so every session tiers each VU1
+	// program up again while the game runs, and each tier-up throws the program's compiled
+	// blocks away: profiles of Ratchet & Clank show a 200 ms stall at 63-73% speed with the
+	// compile thread at 30% of a core each time. VU1 is nowhere near the limit on this game.
+	EnableVUAot = false;
+#endif
 
 	// vu and fpu clamping default to standard overflow.
 	vu0Overflow = true;
@@ -939,6 +947,7 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 		OpEqu(BackThreadUseCore3) &&
 		OpEqu(BackThreadQueueVsync) &&
 		OpEqu(DrawFrameSkip) &&
+		OpEqu(PresentPacing) &&
 
 		OpEqu(CAS_Sharpness) &&
 		OpEqu(FSR_Sharpness) &&
@@ -1228,6 +1237,7 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	BackThread = wrap.EntryBitfield(CURRENT_SETTINGS_SECTION, "GSBackThreadMode", BackThread ? 1 : 0, BackThread ? 1 : 0) != 0;
 	SettingsWrapEntryEx(BackThreadUseCore3, "GSBackThreadUseCore3");
 	SettingsWrapEntryEx(BackThreadQueueVsync, "GSBackThreadQueueVsync");
+	SettingsWrapEntryEx(PresentPacing, "PresentPacing");
 	DrawFrameSkip = std::clamp(wrap.EntryBitfield(CURRENT_SETTINGS_SECTION, "DrawFrameSkip", DrawFrameSkip, DrawFrameSkip), 0, 1);
 
 	SettingsWrapBitfield(ShadeBoost_Brightness);

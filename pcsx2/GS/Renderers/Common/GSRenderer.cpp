@@ -26,6 +26,7 @@
 #include "VMManager.h"
 
 #include "common/Console.h"
+#include "common/Threading.h"
 #include "common/FileSystem.h"
 #include "common/Image.h"
 #include "common/Path.h"
@@ -36,6 +37,8 @@
 #include "IconsFontAwesome.h"
 
 #include <algorithm>
+#include <cstring>
+#include <utility>
 #include <array>
 #include <deque>
 #include <thread>
@@ -941,6 +944,8 @@ void GSRenderer::SubmitVsync(u32 field, bool registers_written)
 	// Compares this object's draw and transfer serials with the last frame's. The back thread
 	// advances them as it executes records, so this has to follow the drain.
 	rec.idle_frame = IsIdleFrame();
+	rec.post_ticks = GSGetVsyncPostTicks();
+	GSSetVsyncPostTicks(0);
 	ExecVsyncRecord(rec);
 }
 
@@ -969,11 +974,72 @@ void GSRenderer::QueueVsync(u32 field, bool registers_written, u64 post_serial)
 	rec.queued = true;
 	rec.regs_slot = static_cast<u8>(slot);
 	rec.post_serial = post_serial;
+	rec.post_ticks = GSGetVsyncPostTicks();
+	GSSetVsyncPostTicks(0);
 	PushRecord(GSBackQueue::RecordType::Vsync, rec);
+}
+
+// Present pacing. The EE thread reaches each vsync on the limiter's even beat, but the thread
+// that presents gets there once it has drawn the frame before it, which is sooner after a
+// light frame than a heavy one. Presented as they finish, frames land on the display's refresh
+// unevenly -- one refresh, then three -- and motion judders at a perfectly good average rate.
+// So hold each present until a fixed delay after its vsync was posted. A frame that is ready
+// early waits and one that is late goes at once, which leaves every frame that makes the
+// deadline evenly spaced at the cost of up to that delay in latency.
+void GSRenderer::PacePresent()
+{
+	if (!GSConfig.PresentPacing || m_vsync_post_ticks == 0)
+		return;
+
+	const u64 frame = GetTickFrequency() / 60;
+	const u64 target = m_vsync_post_ticks + frame;
+	const u64 now = GetCPUTicks();
+	if (now < target)
+	{
+		// A target far in the future is a stale or foreign stamp, not a frame to wait for.
+		if (target - now <= frame * 2)
+			Threading::SleepUntil(target);
+		m_pace_early++;
+	}
+	else
+	{
+		m_pace_late++;
+		m_pace_late_max = std::max(m_pace_late_max, now - target);
+	}
+}
+
+// How evenly new pictures reached the display, whether or not pacing is on: the gaps between
+// presents that carried a new picture, counted in display refreshes. Logged every ten seconds.
+void GSRenderer::NotePresented(bool new_image)
+{
+	const u64 frame = GetTickFrequency() / 60;
+	const u64 now = GetCPUTicks();
+	if (new_image)
+	{
+		if (m_pace_last_new != 0)
+		{
+			const u64 refreshes = std::clamp<u64>((now - m_pace_last_new + frame / 2) / frame, 1, 5);
+			m_pace_gaps[refreshes - 1]++;
+		}
+		m_pace_last_new = now;
+	}
+
+	if (++m_pace_presents >= 600)
+	{
+		Console.WriteLn("Present pacing %s: %u held to the beat, %u late (worst %.1f ms); new pictures after 1/2/3/4/5+ "
+						"refreshes: %u/%u/%u/%u/%u",
+			GSConfig.PresentPacing ? "on" : "off", m_pace_early, m_pace_late,
+			static_cast<double>(m_pace_late_max) * 1000.0 / static_cast<double>(GetTickFrequency()),
+			m_pace_gaps[0], m_pace_gaps[1], m_pace_gaps[2], m_pace_gaps[3], m_pace_gaps[4]);
+		m_pace_presents = m_pace_early = m_pace_late = 0;
+		m_pace_late_max = 0;
+		std::memset(m_pace_gaps, 0, sizeof(m_pace_gaps));
+	}
 }
 
 void GSRenderer::ExecVsyncRecord(const GSBackQueue::VsyncRecord& rec)
 {
+	m_vsync_post_ticks = rec.post_ticks;
 	if (!rec.queued)
 	{
 		VSync(rec.field, rec.registers_written, rec.idle_frame);
@@ -1023,6 +1089,7 @@ static GSVector4 RemotePlayArea(const GSVector4& draw_rect)
 void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 {
 	NoteAsyncReadbackVsync();
+	const bool pace_new_image = std::exchange(m_display_drawn_since_vsync, false);
 
 	if (GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
 	{
@@ -1368,6 +1435,9 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 		else
 			g_gs_device->RemotePlayVSync(nullptr, GSVector4::zero(), GSVector4::zero());
 #endif
+
+		PacePresent();
+		NotePresented(pace_new_image);
 
 		if (BeginPresentFrame(false))
 		{

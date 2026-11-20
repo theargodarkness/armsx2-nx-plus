@@ -234,6 +234,7 @@ namespace GSBackQueue
 		bool queued;
 		u8 regs_slot;
 		u64 post_serial;
+		u64 post_ticks; // host ticks when the EE thread posted this vsync, 0 if unknown
 	};
 
 	// The privileged-register fields a draw reads, as they stood when the draw was flushed. The

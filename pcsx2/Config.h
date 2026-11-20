@@ -1111,6 +1111,13 @@ struct Pcsx2Config
 		/// and keep showing the previous image for them, so that at most 30 game frames a second
 		/// are drawn. 0 off, 1 on; see GSState::DrawFrameSkipDropsDraw.
 		int DrawFrameSkip = 0;
+		/// Hold each present until a fixed delay after the EE thread posted its vsync, so frames
+		/// reach the display evenly spaced; see GSRenderer::PacePresent.
+#ifdef __SWITCH__
+		bool PresentPacing = true;
+#else
+		bool PresentPacing = false;
+#endif
 
 		// RetroArch (.slangp) shader chain, applied at present after ShadeBoost/FXAA via
 		// librashader. Disabled or an empty preset skips the chain entirely (zero cost),

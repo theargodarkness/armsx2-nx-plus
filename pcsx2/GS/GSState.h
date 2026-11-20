@@ -670,6 +670,8 @@ public:
 		u32 log_presents_held = 0;
 	};
 	DrawFrameSkipState m_dfs;
+	// An executed draw has gone into a buffer that is on screen since the last vsync.
+	bool m_display_drawn_since_vsync = false;
 	bool m_dfs_used = false;
 	bool DrawFrameSkipDropsDraw();
 	bool DrawFrameSkipOnVsync();
