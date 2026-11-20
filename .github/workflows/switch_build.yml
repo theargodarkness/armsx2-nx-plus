@@ -123,7 +123,7 @@ jobs:
     env:
       # The commit the profiled NRO was built from. Every variant is tried: the
       # layout check in each report says which one the NRO really was.
-      PROFILE_COMMIT: fb11096cacf33887cff02fafa4bbeabbdbc9def2
+      PROFILE_COMMIT: 8c896aebdd10c5ecdc971801eb690eac0dea225e
       PROFILE_CMAKE_ARGS: ${{ matrix.cmake_args }}
       # Debug info only: GCC generates the same code with -g, and the layout check
       # in the report says whether that held.
