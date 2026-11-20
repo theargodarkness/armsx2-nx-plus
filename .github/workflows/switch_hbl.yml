@@ -49,6 +49,16 @@ jobs:
           ls -l hbl.nsp
           sha256sum hbl.nsp
 
+      # The kernel-flags capability word is highest cpu, lowest cpu, priorities 59 and 28, tag 0111.
+      - name: Check the built NPDM
+        run: |
+          python3 - <<'PY'
+          data = open("hbl/hbl.npdm", "rb").read()
+          new, old = data.count(bytes.fromhex("c7ed0003")), data.count(bytes.fromhex("c7ed0002"))
+          print(f"kernel flags allowing core 3: {new}, capped at core 2: {old}")
+          assert new >= 1 and old == 0
+          PY
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
