@@ -49,6 +49,9 @@ private:
 	u64 m_pace_last_new = 0;
 	u64 m_pace_delay = 0;
 	u64 m_pace_late_max = 0;
+	u64 m_pace_last_post = 0;
+	u64 m_pace_beat = 0;
+	u32 m_pace_behind = 0;
 	u32 m_pace_presents = 0;
 	u32 m_pace_early = 0;
 	u32 m_pace_late = 0;

@@ -1000,6 +1000,23 @@ void GSRenderer::PacePresent()
 	const u64 frame = GetTickFrequency() / 60;
 	if (m_pace_delay == 0)
 		m_pace_delay = frame * 3 / 2;
+
+	// Pacing only makes sense while the EE keeps its 60 Hz beat. Below full speed the EE is
+	// waiting on this thread, so a hold here is lost throughput and lowers the speed further:
+	// a profile at 60-75% speed had this thread asleep in here for 5% of the time. The beat
+	// is the average spacing of the vsync stamps; more than 2% over a frame means behind.
+	if (m_pace_last_post != 0 && m_vsync_post_ticks > m_pace_last_post)
+	{
+		const u64 gap = std::min<u64>(m_vsync_post_ticks - m_pace_last_post, frame * 4);
+		m_pace_beat = (m_pace_beat == 0) ? gap : (m_pace_beat * 15 + gap) / 16;
+	}
+	m_pace_last_post = m_vsync_post_ticks;
+	if (m_pace_beat > frame + frame / 50)
+	{
+		m_pace_behind++;
+		return;
+	}
+
 	const u64 target = m_vsync_post_ticks + m_pace_delay;
 	const u64 now = GetCPUTicks();
 	if (now < target)
@@ -1040,13 +1057,13 @@ void GSRenderer::NotePresented(bool new_image)
 
 	if (++m_pace_presents >= 600)
 	{
-		Console.WriteLn("Present pacing %s: %u held to the beat, %u late (worst %.1f ms), delay %.1f ms; new pictures after "
+		Console.WriteLn("Present pacing %s: %u held to the beat, %u late (worst %.1f ms), %u unpaced below full speed, delay %.1f ms; new pictures after "
 						"1/2/3/4/5+ refreshes: %u/%u/%u/%u/%u",
 			GSConfig.PresentPacing ? "on" : "off", m_pace_early, m_pace_late,
-			static_cast<double>(m_pace_late_max) * 1000.0 / static_cast<double>(GetTickFrequency()),
+			static_cast<double>(m_pace_late_max) * 1000.0 / static_cast<double>(GetTickFrequency()), m_pace_behind,
 			static_cast<double>(m_pace_delay) * 1000.0 / static_cast<double>(GetTickFrequency()),
 			m_pace_gaps[0], m_pace_gaps[1], m_pace_gaps[2], m_pace_gaps[3], m_pace_gaps[4]);
-		m_pace_presents = m_pace_early = m_pace_late = 0;
+		m_pace_presents = m_pace_early = m_pace_late = m_pace_behind = 0;
 		m_pace_late_max = 0;
 		std::memset(m_pace_gaps, 0, sizeof(m_pace_gaps));
 	}
