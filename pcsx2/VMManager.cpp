@@ -5614,6 +5614,18 @@ void VMManager::SetEmuThreadAffinities()
 	INFO_LOG("Switch: actual thread masks EE=0x{:x}, VU=0x{:x}, GS=0x{:x}",
 		s_vm_thread_handle.GetAffinity(), mtvu ? vu1Thread.GetThreadHandle().GetAffinity() : 0,
 		MTGS::GetThreadHandle().GetAffinity());
+
+	// The VU1 and GS threads are what the EE thread waits on, each has a core of its own, and
+	// each blocks when it runs dry. The GS back thread has no core: it runs wherever there is
+	// room. With all three at the default priority the kernel gave them 10 ms turns, so a VU1
+	// or GS thread that woke up while the back thread held its core could wait out the rest of
+	// a slice with the EE thread stalled behind it. Raised, they take their core back at once
+	// and the back thread gets what they leave, which a profile puts at about a core in total
+	// even when the game runs at 60.
+	const bool vu_raised = mtvu && vu1Thread.GetThreadHandle().SetNicePriority(-1);
+	const bool gs_raised = MTGS::GetThreadHandle().SetNicePriority(-1);
+	INFO_LOG("Switch: VU thread priority {}, GS thread priority {}", vu_raised ? "raised" : "default",
+		gs_raised ? "raised" : "default");
 #endif
 
 #ifdef __ANDROID__

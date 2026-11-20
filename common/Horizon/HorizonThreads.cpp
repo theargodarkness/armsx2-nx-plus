@@ -178,10 +178,39 @@ bool Threading::ThreadHandle::SetAffinity(u64 processor_mask) const
 	return R_SUCCEEDED(result);
 }
 
+// Horizon has no nice value, but it does have two kinds of priority. Every thread this port
+// creates starts at 59, the one priority the kernel time-slices: threads at 59 on a core take
+// turns in 10 ms slices. Anything above it runs until it blocks and takes the core from a 59
+// thread at once. So "nicer than default" has nowhere to go, and "less nice" lifts the thread
+// out of the time-sliced class to 48, still below the main thread's 44. A thread that asks for
+// this has to be one that blocks when it has nothing to do.
 bool Threading::ThreadHandle::SetNicePriority(int nice) const
 {
-	(void)nice;
-	return false;
+	if (!m_native_handle || nice >= 0)
+		return false;
+
+	Handle handle;
+	if (static_cast<void*>(pthread_self()) == m_native_handle)
+	{
+		handle = CUR_THREAD_HANDLE;
+	}
+	else
+	{
+		std::lock_guard lock(s_thread_handle_map_mutex);
+		const auto it = s_thread_handle_map.find(m_native_handle);
+		if (it == s_thread_handle_map.end())
+			return false;
+		handle = it->second;
+	}
+
+	constexpr s32 RAISED_PRIORITY = 48;
+	s32 current = 0;
+	if (R_SUCCEEDED(svcGetThreadPriority(&current, handle)) && current <= RAISED_PRIORITY)
+		return true;
+	const Result result = svcSetThreadPriority(handle, RAISED_PRIORITY);
+	if (R_FAILED(result))
+		Console.Warning("Switch: raising a thread's priority failed: 0x%08x", result);
+	return R_SUCCEEDED(result);
 }
 
 u64 Threading::ThreadHandle::GetAffinity() const
